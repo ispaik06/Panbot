@@ -1,0 +1,129 @@
+# Panbot/config/runtime.yaml
+
+paths:
+  # Vision warp corners (4K용)
+  corners: "Panbot/vision/calibration/corners.json"
+
+  # Vision models
+  yolo_model: "Panbot/vision/models/runs/batter_seg_local_v1/weights/best.pt"
+  gru_ckpt: "Panbot/vision/models/runs/resnet18_gru16_cls/best.pt"
+
+robot:
+  type: "so101_follower"
+  port: "/dev/ttyACM0"
+  id: "my_awesome_follower_arm"
+  calibration_dir: ""  # 필요 시 경로 입력, 아니면 빈 문자열
+
+  # ⚠️ policy에서 쓸 카메라들 (vision cam과는 별도, stage3/4 때만 사용)
+  cameras:
+    right:
+      type: "opencv"
+      index_or_path: 2
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: "MJPG"
+    left:
+      type: "opencv"
+      index_or_path: 6
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: "MJPG"
+    global:
+      type: "opencv"
+      index_or_path: 4
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: "MJPG"
+    wrist:
+      type: "opencv"
+      index_or_path: 10
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: "MJPG"
+
+vision:
+  # YOLO/GRU가 쓰는 "하나의" 비전 카메라 (같은 카메라라서 동시에 못 돌림)
+  cam_index: 0
+  backend: "v4l2"
+  mjpg: true
+
+  # 4K 고정
+  width: 3840
+  height: 2160
+  fps: 30
+
+  show: true
+  yolo_preview_scale: 0.55
+  gru_preview_scale: 0.30
+
+yolo_trigger:
+  conf: 0.25
+  imgsz: 640
+  area_thr_ratio: 0.17
+  hold_frames: 30
+  use_warp: true
+
+gru_trigger:
+  image_size: 224
+  seq_len: 16
+  stride: 6
+  ema: 0.7
+  ready_hold: 3
+  amp: true
+  use_warp: true
+
+task:
+  # 로봇 제어 루프(요청: 30Hz)
+  hz: 30
+
+  # Task1 motion
+  task1_ramp_time_s: 3.0
+  task1_pose_hold_s: 1.0
+
+  # Task2/3 (임시로 duration 기반)
+  policy_fps: 30
+  task2_duration_s: 10.0
+  task3_duration_s: 10.0
+  wait_task2_to_task3_s: 30.0
+
+poses:
+  base_pose:
+    shoulder_pan.pos: -9.298892988929879
+    shoulder_lift.pos: -98.8125530110263
+    elbow_flex.pos: 99.90880072959416
+    wrist_flex.pos: 50.977060322854726
+    wrist_roll.pos: 4.299947561615085
+    gripper.pos: 0.2722940776038121
+
+  task1_initial_sequence:
+    - { shoulder_pan.pos: -51.119, shoulder_lift.pos: -5.567, elbow_flex.pos: 75.829, wrist_flex.pos: -43.922, wrist_roll.pos: 57.608, gripper.pos: 80.903 }
+    - { shoulder_pan.pos: -59.631, shoulder_lift.pos: 24.182, elbow_flex.pos: 42.935, wrist_flex.pos: -44.007, wrist_roll.pos: 54.302, gripper.pos: 25.834 }
+    - { shoulder_pan.pos: -42.782, shoulder_lift.pos: -33.787, elbow_flex.pos: 14.13, wrist_flex.pos: 35.536, wrist_roll.pos: 54.092, gripper.pos: 25.834 }
+    - { shoulder_pan.pos: -20.842, shoulder_lift.pos: -3.612, elbow_flex.pos: 14.675, wrist_flex.pos: 21.05, wrist_roll.pos: 23.924, gripper.pos: 25.703 }
+    - { shoulder_pan.pos: -20.14, shoulder_lift.pos: 26.902, elbow_flex.pos: -23.944, wrist_flex.pos: 36.298, wrist_roll.pos: -21.091, gripper.pos: 25.768 }
+
+  task1_return_sequence:
+    - { shoulder_pan.pos: -20.14, shoulder_lift.pos: 26.902, elbow_flex.pos: -23.944, wrist_flex.pos: 36.298, wrist_roll.pos: -21.091, gripper.pos: 25.768 }
+    - { shoulder_pan.pos: -20.842, shoulder_lift.pos: -3.612, elbow_flex.pos: 14.675, wrist_flex.pos: 21.05, wrist_roll.pos: 23.924, gripper.pos: 25.703 }
+    - { shoulder_pan.pos: -42.782, shoulder_lift.pos: -33.787, elbow_flex.pos: 14.13, wrist_flex.pos: 35.536, wrist_roll.pos: 54.092, gripper.pos: 25.834 }
+    - { shoulder_pan.pos: -59.631, shoulder_lift.pos: 24.182, elbow_flex.pos: 42.935, wrist_flex.pos: -44.007, wrist_roll.pos: 54.302, gripper.pos: 25.834 }
+    - { shoulder_pan.pos: -51.119, shoulder_lift.pos: -5.567, elbow_flex.pos: 75.829, wrist_flex.pos: -43.922, wrist_roll.pos: 57.608, gripper.pos: 80.903 }
+
+policies:
+  policy1:
+    repo_id: "ispaik06/act_panbot_task2_3"
+    task: null
+    rename_map: {}
+    dataset_repo_id: null
+    dataset_root: null
+
+  policy2:
+    repo_id: "ispaik06/act_panbot_task3_3"
+    task: null
+    rename_map: {}
+    dataset_repo_id: null
+    dataset_root: null

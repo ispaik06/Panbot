@@ -1,158 +1,199 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --------------------------------------------
-# Panbot start script
-# - Works from anywhere (uses script location)
-# - Writes ALL output (stdout/stderr) to a timestamped log file
-# - Prints config summary before starting main_runtime
-# --------------------------------------------
+# ------------------------------------------------------------
+# Panbot start script (runtime.yaml 기반)
+# - 어디서 실행해도 동작 (script 위치 기준)
+# - PYTHONPATH 설정
+# - 환경변수로 runtime.yaml 값을 override 가능 (원본 yaml은 유지)
+# ------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PANBOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"          # .../Panbot
-REPO_ROOT="$(cd "${PANBOT_DIR}/.." && pwd)"           # project root
+PANBOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"      # .../Panbot
+REPO_ROOT="$(cd "${PANBOT_DIR}/.." && pwd)"       # repo root (parent of Panbot)
 
 cd "${REPO_ROOT}"
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
-# --------- defaults ----------
-CAM_INDEX="${CAM_INDEX:-0}"
-BACKEND="${BACKEND:-v4l2}"
+# ---------- config path ----------
+CONFIG="${CONFIG:-Panbot/config/runtime.yaml}"
 
-WIDTH="${WIDTH:-3840}"
-HEIGHT="${HEIGHT:-2160}"
-FPS="${FPS:-30}"
-MJPG="${MJPG:-1}"
+# ---------- optional overrides (env) ----------
+# 로봇
+ROBOT_PORT="${ROBOT_PORT:-}"              # ex) /dev/ttyACM0
+ROBOT_ID="${ROBOT_ID:-}"                  # ex) so101_follower_1
+ROBOT_CALIB_DIR="${ROBOT_CALIB_DIR:-}"    # ex) Panbot/control/calib
 
-YOLO_PREVIEW_SCALE="${YOLO_PREVIEW_SCALE:-0.55}"
-GRU_PREVIEW_SCALE="${GRU_PREVIEW_SCALE:-0.30}"
-BASE_PREVIEW_SCALE="${BASE_PREVIEW_SCALE:-0.30}"
+# task duration
+TASK2_DURATION_S="${TASK2_DURATION_S:-}"  # ex) 10
+TASK3_DURATION_S="${TASK3_DURATION_S:-}"  # ex) 10
+WAIT_TASK2_TO_TASK3_S="${WAIT_TASK2_TO_TASK3_S:-}" # ex) 30
 
-CORNERS="${CORNERS:-Panbot/vision/calibration/corners.json}"
-YOLO_MODEL="${YOLO_MODEL:-Panbot/vision/models/runs/batter_seg_local_v1/weights/best.pt}"
-GRU_CKPT="${GRU_CKPT:-Panbot/vision/models/runs/resnet18_gru16_cls/best.pt}"
+# vision show on/off (true/false)
+SHOW="${SHOW:-}"                          # ex) true / false
 
-ROBOT_PORT="${ROBOT_PORT:-/dev/ttyACM0}"
-ROBOT_ID="${ROBOT_ID:-so101_follower_1}"
-ROBOT_CALIB_DIR="${ROBOT_CALIB_DIR:-}"
+# vision camera index
+VISION_CAM_INDEX="${VISION_CAM_INDEX:-}"  # ex) 0
 
-TASK2_DURATION="${TASK2_DURATION:-10}"
-TASK3_DURATION="${TASK3_DURATION:-10}"
-WAIT_TASK2_TO_TASK3_S="${WAIT_TASK2_TO_TASK3_S:-30}"
+# log: 추가로 시작 시 정보 크게 출력
+PRINT_BANNER="${PRINT_BANNER:-1}"
 
-SHOW="${SHOW:-1}"
+# ---------- helper: yaml patch (python) ----------
+PATCHED_CONFIG=""
+if [[ -n "${ROBOT_PORT}${ROBOT_ID}${ROBOT_CALIB_DIR}${TASK2_DURATION_S}${TASK3_DURATION_S}${WAIT_TASK2_TO_TASK3_S}${SHOW}${VISION_CAM_INDEX}" ]]; then
+  PATCHED_CONFIG="$(mktemp -t panbot_runtime_patched_XXXX.yaml)"
 
-# --------- log file ----------
-LOG_DIR="${LOG_DIR:-${PANBOT_DIR}/logs}"
-mkdir -p "${LOG_DIR}"
-TS="$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="${LOG_DIR}/run_${TS}.log"
+  python - <<'PY'
+import os, yaml, copy
 
-# Route ALL output to both terminal + log file (append mode)
-exec > >(tee -a "${LOG_FILE}") 2>&1
+cfg_path = os.environ["CONFIG"]
+with open(cfg_path, "r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
 
-echo "============================================"
-echo "[start_all.sh] Panbot runtime starting..."
-echo "TIME        : $(date)"
-echo "REPO_ROOT   : ${REPO_ROOT}"
-echo "PANBOT_DIR  : ${PANBOT_DIR}"
-echo "PYTHON      : $(command -v python || true)"
-echo "PYTHON_VER  : $(python --version 2>/dev/null || true)"
-echo "PWD         : $(pwd)"
-echo "LOG_FILE    : ${LOG_FILE}"
-echo "--------------------------------------------"
-echo "[CAM]"
-echo "  CAM_INDEX : ${CAM_INDEX}"
-echo "  BACKEND   : ${BACKEND}"
-echo "  SIZE      : ${WIDTH}x${HEIGHT}"
-echo "  FPS       : ${FPS}"
-echo "  MJPG      : ${MJPG}"
-echo "[PREVIEW]"
-echo "  YOLO      : ${YOLO_PREVIEW_SCALE}"
-echo "  GRU       : ${GRU_PREVIEW_SCALE}"
-echo "  BASE      : ${BASE_PREVIEW_SCALE}"
-echo "[PATHS]"
-echo "  CORNERS   : ${CORNERS}"
-echo "  YOLO_MODEL: ${YOLO_MODEL}"
-echo "  GRU_CKPT  : ${GRU_CKPT}"
-echo "[ROBOT]"
-echo "  PORT      : ${ROBOT_PORT}"
-echo "  ID        : ${ROBOT_ID}"
-echo "  CALIB_DIR : ${ROBOT_CALIB_DIR:-<empty>}"
-echo "[TASK]"
-echo "  TASK2_DURATION       : ${TASK2_DURATION}"
-echo "  TASK3_DURATION       : ${TASK3_DURATION}"
-echo "  WAIT_TASK2_TO_TASK3_S: ${WAIT_TASK2_TO_TASK3_S}"
-echo "[UI]"
-echo "  SHOW      : ${SHOW}"
-echo "============================================"
-echo
+def set_if(env, path, cast=None):
+    v = os.environ.get(env, "")
+    if not v:
+        return
+    keys = path.split(".")
+    cur = cfg
+    for k in keys[:-1]:
+        if k not in cur or not isinstance(cur[k], dict):
+            cur[k] = {}
+        cur = cur[k]
+    vv = v
+    if cast:
+        vv = cast(v)
+    cur[keys[-1]] = vv
 
-# --------- preflight checks ----------
-fail=0
-check_file () {
-  local p="$1"
-  if [[ ! -f "$p" ]]; then
-    echo "[ERROR] missing file: $p"
-    fail=1
-  else
-    echo "[OK] file exists: $p"
+def to_bool(x: str) -> bool:
+    x = x.strip().lower()
+    return x in ("1","true","t","yes","y","on")
+
+def to_float(x: str) -> float:
+    return float(x)
+
+def to_int(x: str) -> int:
+    return int(float(x))
+
+# robot overrides
+set_if("ROBOT_PORT", "robot.port", str)
+set_if("ROBOT_ID", "robot.id", str)
+set_if("ROBOT_CALIB_DIR", "robot.calibration_dir", str)
+
+# task overrides
+set_if("TASK2_DURATION_S", "task.task2_duration_s", to_float)
+set_if("TASK3_DURATION_S", "task.task3_duration_s", to_float)
+set_if("WAIT_TASK2_TO_TASK3_S", "task.wait_task2_to_task3_s", to_float)
+
+# vision overrides
+set_if("SHOW", "vision.show", to_bool)
+set_if("VISION_CAM_INDEX", "vision.cam_index", to_int)
+
+patched = os.environ["PATCHED_CONFIG"]
+with open(patched, "w", encoding="utf-8") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
+
+print(patched)
+PY
+  # 위 python에서 patched 경로를 출력하므로 받기
+  PATCHED_CONFIG="$(python - <<'PY'
+import os
+print(os.environ["PATCHED_CONFIG"])
+PY
+)"
+
+  # ↑ 위 방식이 환경에 따라 꼬일 수 있어서 아래로 안전하게 재지정
+  # (실제로는 위 python 실행에서 PATCHED_CONFIG 파일을 이미 만들어 둠)
+fi
+
+# 위 patch 파이썬에서 PATCHED_CONFIG를 env로 넣어야 해서 재구성
+if [[ -n "${PATCHED_CONFIG}" ]]; then
+  export PATCHED_CONFIG
+fi
+
+# 다시 patch를 "확실히" 수행 (위에서 파일 만들었다고 가정하지 않고 여기서 확정)
+if [[ -n "${ROBOT_PORT}${ROBOT_ID}${ROBOT_CALIB_DIR}${TASK2_DURATION_S}${TASK3_DURATION_S}${WAIT_TASK2_TO_TASK3_S}${SHOW}${VISION_CAM_INDEX}" ]]; then
+  PATCHED_CONFIG="$(mktemp -t panbot_runtime_patched_XXXX.yaml)"
+  export PATCHED_CONFIG
+  python - <<'PY'
+import os, yaml
+
+cfg_path = os.environ["CONFIG"]
+patched = os.environ["PATCHED_CONFIG"]
+
+with open(cfg_path, "r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
+
+def to_bool(x: str) -> bool:
+    x = x.strip().lower()
+    return x in ("1","true","t","yes","y","on")
+
+def set_path(d, path, value):
+    keys = path.split(".")
+    cur = d
+    for k in keys[:-1]:
+        if k not in cur or not isinstance(cur[k], dict):
+            cur[k] = {}
+        cur = cur[k]
+    cur[keys[-1]] = value
+
+# robot overrides
+if os.environ.get("ROBOT_PORT",""):
+    set_path(cfg, "robot.port", os.environ["ROBOT_PORT"])
+if os.environ.get("ROBOT_ID",""):
+    set_path(cfg, "robot.id", os.environ["ROBOT_ID"])
+if os.environ.get("ROBOT_CALIB_DIR",""):
+    set_path(cfg, "robot.calibration_dir", os.environ["ROBOT_CALIB_DIR"])
+
+# task overrides
+if os.environ.get("TASK2_DURATION_S",""):
+    set_path(cfg, "task.task2_duration_s", float(os.environ["TASK2_DURATION_S"]))
+if os.environ.get("TASK3_DURATION_S",""):
+    set_path(cfg, "task.task3_duration_s", float(os.environ["TASK3_DURATION_S"]))
+if os.environ.get("WAIT_TASK2_TO_TASK3_S",""):
+    set_path(cfg, "task.wait_task2_to_task3_s", float(os.environ["WAIT_TASK2_TO_TASK3_S"]))
+
+# vision overrides
+if os.environ.get("SHOW",""):
+    set_path(cfg, "vision.show", to_bool(os.environ["SHOW"]))
+if os.environ.get("VISION_CAM_INDEX",""):
+    set_path(cfg, "vision.cam_index", int(float(os.environ["VISION_CAM_INDEX"])))
+
+with open(patched, "w", encoding="utf-8") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
+
+print(patched)
+PY
+fi
+
+FINAL_CONFIG="${PATCHED_CONFIG:-$CONFIG}"
+
+if [[ "${PRINT_BANNER}" == "1" ]]; then
+  echo "============================================"
+  echo "[start_all.sh]"
+  echo "REPO_ROOT=${REPO_ROOT}"
+  echo "PYTHONPATH=${PYTHONPATH}"
+  echo "CONFIG(original)=${CONFIG}"
+  if [[ "${FINAL_CONFIG}" != "${CONFIG}" ]]; then
+    echo "CONFIG(patched)=${FINAL_CONFIG}"
+    echo "OVERRIDES:"
+    [[ -n "${ROBOT_PORT}" ]] && echo "  ROBOT_PORT=${ROBOT_PORT}"
+    [[ -n "${ROBOT_ID}" ]] && echo "  ROBOT_ID=${ROBOT_ID}"
+    [[ -n "${ROBOT_CALIB_DIR}" ]] && echo "  ROBOT_CALIB_DIR=${ROBOT_CALIB_DIR}"
+    [[ -n "${TASK2_DURATION_S}" ]] && echo "  TASK2_DURATION_S=${TASK2_DURATION_S}"
+    [[ -n "${TASK3_DURATION_S}" ]] && echo "  TASK3_DURATION_S=${TASK3_DURATION_S}"
+    [[ -n "${WAIT_TASK2_TO_TASK3_S}" ]] && echo "  WAIT_TASK2_TO_TASK3_S=${WAIT_TASK2_TO_TASK3_S}"
+    [[ -n "${SHOW}" ]] && echo "  SHOW=${SHOW}"
+    [[ -n "${VISION_CAM_INDEX}" ]] && echo "  VISION_CAM_INDEX=${VISION_CAM_INDEX}"
   fi
-}
-check_dev () {
-  local p="$1"
-  if [[ ! -e "$p" ]]; then
-    echo "[WARN] device not found: $p"
-  else
-    echo "[OK] device exists: $p"
-  fi
-}
-
-check_file "${CORNERS}"
-check_file "${YOLO_MODEL}"
-check_file "${GRU_CKPT}"
-check_dev  "${ROBOT_PORT}"
-
-if [[ $fail -ne 0 ]]; then
+  echo "============================================"
   echo
-  echo "[FATAL] preflight failed. Fix missing files and retry."
-  exit 1
 fi
 
-# --------- build args ----------
-ARGS=(
-  "--cam" "${CAM_INDEX}"
-  "--backend" "${BACKEND}"
-  "--width" "${WIDTH}"
-  "--height" "${HEIGHT}"
-  "--fps" "${FPS}"
-  "--yolo_preview_scale" "${YOLO_PREVIEW_SCALE}"
-  "--gru_preview_scale" "${GRU_PREVIEW_SCALE}"
-  "--base_preview_scale" "${BASE_PREVIEW_SCALE}"
-  "--corners" "${CORNERS}"
-  "--yolo_model" "${YOLO_MODEL}"
-  "--gru_ckpt" "${GRU_CKPT}"
-  "--robot_port" "${ROBOT_PORT}"
-  "--robot_id" "${ROBOT_ID}"
-  "--task2_duration" "${TASK2_DURATION}"
-  "--task3_duration" "${TASK3_DURATION}"
-  "--wait_task2_to_task3_s" "${WAIT_TASK2_TO_TASK3_S}"
-)
+# Run main runtime
+python Panbot/control/main_runtime.py --config "${FINAL_CONFIG}"
 
-if [[ "${MJPG}" == "1" ]]; then
-  ARGS+=("--mjpg")
+# Cleanup patched file
+if [[ -n "${PATCHED_CONFIG:-}" && -f "${PATCHED_CONFIG}" ]]; then
+  rm -f "${PATCHED_CONFIG}" || true
 fi
-if [[ -n "${ROBOT_CALIB_DIR}" ]]; then
-  ARGS+=("--robot_calib_dir" "${ROBOT_CALIB_DIR}")
-fi
-if [[ "${SHOW}" == "1" ]]; then
-  ARGS+=("--show")
-fi
-
-echo
-echo "[CMD] python Panbot/control/main_runtime.py ${ARGS[*]}"
-echo "--------------------------------------------"
-echo
-
-# --------- run ----------
-python Panbot/control/main_runtime.py "${ARGS[@]}"
