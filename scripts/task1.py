@@ -1,9 +1,8 @@
 import json
 import logging
-import sys
 import time
-from pathlib import Path
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from pprint import pformat
 
 import zmq
@@ -168,32 +167,14 @@ class Task1Config:
     # Log actions sent to the robot.
     log_action: bool = True
 
-    # -------------------------
-    # NEW: Live status printing
-    # -------------------------
+    # NEW: live status logging
     status_enable: bool = True
-    status_interval_s: float = 0.5  # how often to update the single-line status
-    status_use_single_line: bool = True  # True: overwrite same line; False: print new lines
+    status_interval_s: float = 0.7  # print status every N seconds during WAIT_TRIGGER
 
 
-def _status_print(cfg: Task1Config, text: str, *, force_newline: bool = False) -> None:
-    """
-    Real-time terminal status output.
-    - If status_use_single_line=True, it updates the same line using \\r.
-    - force_newline=True prints as a new line (useful on phase changes).
-    """
-    if not cfg.status_enable:
-        return
-
-    if (not cfg.status_use_single_line) or force_newline:
-        sys.stdout.write(text + "\n")
-        sys.stdout.flush()
-        return
-
-    # overwrite same line
-    # pad spaces to clear previous longer lines
-    sys.stdout.write("\r" + text + " " * 10)
-    sys.stdout.flush()
+def _status(cfg: Task1Config, msg: str) -> None:
+    if cfg.status_enable:
+        logging.info(msg)
 
 
 def _normalize_action_keys(action: dict[str, float]) -> dict[str, float]:
@@ -264,10 +245,12 @@ def _hold_action(robot, action: dict[str, float], hold_s: float, hold_interval_s
         precise_sleep(hold_interval_s)
 
 
-def _run_sequence(robot, action_features: set[str], sequence: list[dict[str, float]], cfg: Task1Config, *, phase_name: str) -> dict[str, float] | None:
+def _run_sequence(robot, action_features: set[str], sequence: list[dict[str, float]], cfg: Task1Config, phase_name: str) -> dict[str, float] | None:
     last_action = None
     seq_len = len(sequence)
     phase_start = time.perf_counter()
+
+    _status(cfg, f"[{phase_name}] start (poses={seq_len})")
 
     for idx, pose in enumerate(sequence, start=1):
         target = _normalize_action_keys(pose)
@@ -275,15 +258,15 @@ def _run_sequence(robot, action_features: set[str], sequence: list[dict[str, flo
         target = _fill_missing_with_current(robot, action_features, target, cfg.use_current_for_missing)
 
         if cfg.log_action:
-            logging.info("%s pose %d/%d: %s", phase_name, idx, seq_len, target)
-
-        _status_print(cfg, f"[{phase_name}] pose {idx}/{seq_len}  (elapsed {time.perf_counter()-phase_start:.1f}s)")
+            logging.info("[%s] pose %d/%d target=%s", phase_name, idx, seq_len, target)
+        else:
+            _status(cfg, f"[{phase_name}] pose {idx}/{seq_len}")
 
         _ramp_to_action(robot, action_features, target, cfg.ramp_time_s, cfg.ramp_interval_s)
         _hold_action(robot, target, cfg.pose_hold_s, cfg.hold_interval_s)
         last_action = target
 
-    _status_print(cfg, f"[{phase_name}] done  (elapsed {time.perf_counter()-phase_start:.1f}s)", force_newline=True)
+    _status(cfg, f"[{phase_name}] done (elapsed={time.perf_counter()-phase_start:.1f}s)")
     return last_action
 
 
@@ -313,28 +296,28 @@ def _parse_trigger_message(message: str) -> bool | None:
 
 def _wait_for_latch(robot, hold_action: dict[str, float], cfg: Task1Config, trigger_sock: zmq.Socket, trigger_poller: zmq.Poller) -> None:
     """
-    Wait until trigger is confirmed (debounced), while continuously holding the robot pose.
+    Wait until trigger is confirmed, while continuously holding the robot pose.
 
-    Improvement:
-    - poll timeout is aligned with loop rate (fps) to reduce busy polling.
-    - prints live status line: triggered state + confirmation counters.
+    - Receives string messages via ZMQ SUB socket.
+    - Interprets message into boolean (triggered True/False).
+    - If triggered stays True long enough (frames or seconds), exits.
+    - Periodically logs status lines (accumulating log output).
     """
     phase_start = time.perf_counter()
     last_triggered = False
     trigger_true_frames = 0
     trigger_true_start = None
     last_msg_time = None
-    last_print = 0.0
 
-    # loop period
     period_s = 1.0 / max(cfg.fps, 1)
+    next_status_t = time.perf_counter()
 
-    _status_print(cfg, "[WAIT_TRIGGER] waiting for ZMQ trigger...", force_newline=True)
+    _status(cfg, f"[WAIT_TRIGGER] subscribing {cfg.zmq_trigger_sub} (confirm_frames={cfg.trigger_confirm_frames}, confirm_s={cfg.trigger_confirm_s})")
 
     while True:
         loop_start = time.perf_counter()
 
-        # poll up to (period_s) so we don't spin unnecessarily
+        # poll up to ~period to avoid busy spin
         timeout_ms = max(0, int(period_s * 1000))
         events = dict(trigger_poller.poll(timeout=timeout_ms))
 
@@ -345,6 +328,7 @@ def _wait_for_latch(robot, hold_action: dict[str, float], cfg: Task1Config, trig
                 if parsed is not None:
                     last_triggered = parsed
                     last_msg_time = time.perf_counter()
+                    _status(cfg, f"[WAIT_TRIGGER] recv triggered={last_triggered}")
             except zmq.Again:
                 pass
 
@@ -354,45 +338,46 @@ def _wait_for_latch(robot, hold_action: dict[str, float], cfg: Task1Config, trig
             trigger_true_frames += 1
 
             frames_ready = (cfg.trigger_confirm_frames <= 1) or (trigger_true_frames >= cfg.trigger_confirm_frames)
+
             time_ready = False
             if cfg.trigger_confirm_s is not None and cfg.trigger_confirm_s > 0 and trigger_true_start is not None:
                 time_ready = (time.perf_counter() - trigger_true_start) >= cfg.trigger_confirm_s
 
             if frames_ready or time_ready:
-                _status_print(cfg, "[WAIT_TRIGGER] trigger confirmed ✅", force_newline=True)
-                logging.info("Trigger confirmed. Running return sequence.")
+                _status(cfg, "[WAIT_TRIGGER] trigger confirmed ✅ -> proceed return_sequence")
                 return
         else:
             trigger_true_frames = 0
             trigger_true_start = None
 
-        # hold pose
+        # hold pose continuously
         robot.send_action(hold_action)
 
-        # live status printing at interval
+        # periodic status log (accumulating)
         now = time.perf_counter()
-        if cfg.status_enable and (now - last_print) >= max(cfg.status_interval_s, 0.05):
-            last_print = now
+        if cfg.status_enable and now >= next_status_t:
             elapsed = now - phase_start
             since_msg = (now - last_msg_time) if last_msg_time is not None else None
             since_msg_str = f"{since_msg:.1f}s" if since_msg is not None else "never"
             confirm_target = cfg.trigger_confirm_frames if cfg.trigger_confirm_frames > 0 else 1
-            _status_print(
-                cfg,
-                f"[WAIT_TRIGGER] elapsed={elapsed:.1f}s  last_trigger={last_triggered}  "
-                f"confirm={trigger_true_frames}/{confirm_target}  last_msg={since_msg_str}",
-            )
 
-        # keep loop timing stable (if poll returned quickly)
+            _status(
+                cfg,
+                f"[WAIT_TRIGGER] elapsed={elapsed:.1f}s last_trigger={last_triggered} "
+                f"confirm={trigger_true_frames}/{confirm_target} last_msg={since_msg_str}",
+            )
+            next_status_t = now + max(cfg.status_interval_s, 0.1)
+
+        # keep loop timing
         dt_s = time.perf_counter() - loop_start
         precise_sleep(max(0.0, period_s - dt_s))
 
 
 def _validate_sequences(cfg: Task1Config) -> None:
     if not cfg.initial_sequence:
-        raise ValueError("initial_sequence is empty. Provide 5 poses in Task1Config.initial_sequence.")
+        raise ValueError("initial_sequence is empty. Provide poses in Task1Config.initial_sequence.")
     if not cfg.return_sequence:
-        raise ValueError("return_sequence is empty. Provide 5 poses in Task1Config.return_sequence.")
+        raise ValueError("return_sequence is empty. Provide poses in Task1Config.return_sequence.")
     if cfg.enforce_sequence_lengths:
         if len(cfg.initial_sequence) != cfg.initial_sequence_len:
             raise ValueError(f"initial_sequence must have {cfg.initial_sequence_len} poses, got {len(cfg.initial_sequence)}.")
@@ -403,30 +388,33 @@ def _validate_sequences(cfg: Task1Config) -> None:
 def run_task(cfg: Task1Config) -> None:
     init_logging()
     _apply_robot_defaults(cfg.robot)
+
     if isinstance(cfg.robot, SO101FollowerConfig):
         logging.info("Using so101_follower port=%s id=%s", cfg.robot.port, cfg.robot.id)
-    logging.info(pformat(asdict(cfg)))
 
+    logging.info("Task1Config:\n%s", pformat(asdict(cfg)))
     _validate_sequences(cfg)
 
     robot = make_robot_from_config(cfg.robot)
 
-    # ZMQ setup: subscriber
+    # ZMQ SUB setup
     zmq_ctx = zmq.Context.instance()
     trigger_sock = zmq_ctx.socket(zmq.SUB)
-    trigger_sock.setsockopt(zmq.CONFLATE, 1)
+    trigger_sock.setsockopt(zmq.CONFLATE, 1)   # keep latest only
     trigger_sock.setsockopt(zmq.LINGER, 0)
     trigger_sock.connect(cfg.zmq_trigger_sub)
-    trigger_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+    trigger_sock.setsockopt_string(zmq.SUBSCRIBE, "")  # subscribe to all topics
+
     trigger_poller = zmq.Poller()
     trigger_poller.register(trigger_sock, zmq.POLLIN)
+
     logging.info("ZMQ trigger subscriber connected to %s", cfg.zmq_trigger_sub)
 
     robot.connect()
     try:
         action_features = set(robot.action_features.keys())
 
-        # rest_action
+        # rest action
         if cfg.rest_action is None:
             rest_action = {name: 0.0 for name in action_features}
         else:
@@ -434,47 +422,49 @@ def run_task(cfg: Task1Config) -> None:
             _validate_action_keys(rest_action, action_features)
             rest_action = _fill_missing_with_current(robot, action_features, rest_action, cfg.use_current_for_missing)
 
+        logging.info("[REST] ramping to rest_action")
         if cfg.log_action:
-            logging.info("Rest action: %s", rest_action)
+            logging.info("[REST] rest_action=%s", rest_action)
 
-        _status_print(cfg, "[REST] ramping to rest...", force_newline=True)
         _ramp_to_action(robot, action_features, rest_action, cfg.ramp_time_s, cfg.ramp_interval_s)
         _hold_action(robot, rest_action, cfg.pose_hold_s, cfg.hold_interval_s)
-        _status_print(cfg, "[REST] reached rest.", force_newline=True)
+        logging.info("[REST] reached rest_action")
 
         # initial sequence
-        _status_print(cfg, "[INIT_SEQ] starting...", force_newline=True)
         last_initial_action = _run_sequence(robot, action_features, cfg.initial_sequence, cfg, phase_name="INIT_SEQ")
         hold_action = last_initial_action if last_initial_action is not None else rest_action
 
-        # wait trigger
+        # wait for trigger
         _wait_for_latch(robot, hold_action, cfg, trigger_sock, trigger_poller)
 
         # return sequence
-        _status_print(cfg, "[RETURN_SEQ] starting...", force_newline=True)
         _run_sequence(robot, action_features, cfg.return_sequence, cfg, phase_name="RETURN_SEQ")
 
         # back to rest
-        _status_print(cfg, "[REST] returning to rest...", force_newline=True)
+        logging.info("[REST] returning to rest_action")
         _ramp_to_action(robot, action_features, rest_action, cfg.ramp_time_s, cfg.ramp_interval_s)
 
         # hold after return
         if cfg.hold_after_return:
-            _status_print(cfg, "[REST_HOLD] holding at rest (Ctrl+C to stop)...", force_newline=True)
+            if cfg.hold_time_s is None:
+                logging.info("[REST_HOLD] holding at rest forever (Ctrl+C to stop)")
+            else:
+                logging.info("[REST_HOLD] holding at rest for %.2fs", cfg.hold_time_s)
+
             start = time.perf_counter()
             while True:
                 robot.send_action(rest_action)
                 precise_sleep(cfg.hold_interval_s)
                 if cfg.hold_time_s is not None and (time.perf_counter() - start) >= cfg.hold_time_s:
-                    _status_print(cfg, "[REST_HOLD] done (time reached).", force_newline=True)
+                    logging.info("[REST_HOLD] done (time reached)")
                     break
 
     except KeyboardInterrupt:
-        _status_print(cfg, "\n[INTERRUPT] Ctrl+C received. Shutting down...", force_newline=True)
+        logging.info("[INTERRUPT] Ctrl+C received. Shutting down...")
     finally:
         robot.disconnect()
         trigger_sock.close()
-        _status_print(cfg, "[DONE] robot disconnected.", force_newline=True)
+        logging.info("[DONE] robot disconnected, ZMQ socket closed")
 
 
 @parser.wrap()
