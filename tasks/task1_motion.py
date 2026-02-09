@@ -1,21 +1,18 @@
-# Panbot/tasks/task1_motion.py
 from __future__ import annotations
 
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
+from enum import Enum, auto
+from typing import Dict, List, Optional, Tuple
 
-from lerobot.robots import RobotConfig, make_robot_from_config
-from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
-from lerobot.utils.robot_utils import precise_sleep
+import numpy as np
+
+from Panbot.tasks.base_pose import normalize_action_keys
 
 
-# -------------------------
-# Defaults (same spirit as your task1.py)
-# -------------------------
-DEFAULT_REST_ACTION: dict[str, float] = {
+# ✅ task1.py에 있던 기본 자세(=rest_action)
+DEFAULT_REST_ACTION: Dict[str, float] = {
     "shoulder_pan.pos": -9.298892988929879,
     "shoulder_lift.pos": -98.8125530110263,
     "elbow_flex.pos": 99.90880072959416,
@@ -24,7 +21,7 @@ DEFAULT_REST_ACTION: dict[str, float] = {
     "gripper.pos": 0.2722940776038121,
 }
 
-DEFAULT_INITIAL_SEQUENCE: list[dict[str, float]] = [
+DEFAULT_INITIAL_SEQUENCE: List[Dict[str, float]] = [
     {
         "shoulder_pan.pos": -51.119,
         "shoulder_lift.pos": -5.567,
@@ -67,7 +64,7 @@ DEFAULT_INITIAL_SEQUENCE: list[dict[str, float]] = [
     },
 ]
 
-DEFAULT_RETURN_SEQUENCE: list[dict[str, float]] = [
+DEFAULT_RETURN_SEQUENCE: List[Dict[str, float]] = [
     {
         "shoulder_pan.pos": -20.14,
         "shoulder_lift.pos": 26.902,
@@ -111,230 +108,237 @@ DEFAULT_RETURN_SEQUENCE: list[dict[str, float]] = [
 ]
 
 
-# -------------------------
-# Config
-# -------------------------
 @dataclass
 class Task1MotionConfig:
-    robot: RobotConfig
+    """
+    ✅ stepper(비블로킹)로 Task1을 수행하기 위한 설정
+    - loop는 main_runtime에서 30Hz로 돌린다고 가정
+    """
+    fps: int = 30
 
-    # sequences
-    rest_action: dict[str, float] | None = field(default_factory=lambda: dict(DEFAULT_REST_ACTION))
-    initial_sequence: list[dict[str, float]] = field(default_factory=lambda: list(DEFAULT_INITIAL_SEQUENCE))
-    return_sequence: list[dict[str, float]] = field(default_factory=lambda: list(DEFAULT_RETURN_SEQUENCE))
+    ramp_time_s: float = 3.0
+    pose_hold_s: float = 1.0
 
-    # behavior
     use_current_for_missing: bool = True
 
-    # ramp
-    ramp_time_s: float = 3.0
-    ramp_interval_s: float = 0.05
+    initial_sequence: List[Dict[str, float]] = field(default_factory=lambda: list(DEFAULT_INITIAL_SEQUENCE))
+    return_sequence: List[Dict[str, float]] = field(default_factory=lambda: list(DEFAULT_RETURN_SEQUENCE))
 
-    # hold
-    pose_hold_s: float = 1.0
-    hold_interval_s: float = 0.25  # ✅ 유지(send_action) 주기
-
-    # safety
     enforce_sequence_lengths: bool = True
     initial_sequence_len: int = 5
     return_sequence_len: int = 5
 
-    log_action: bool = True
+
+class Mode(Enum):
+    NONE = auto()
+    INITIAL = auto()
+    RETURN = auto()
 
 
-# -------------------------
-# Helpers
-# -------------------------
-def _normalize_action_keys(action: dict[str, float]) -> dict[str, float]:
-    normalized: dict[str, float] = {}
-    for key, value in action.items():
-        feature = key if key.endswith(".pos") else f"{key}.pos"
-        normalized[feature] = float(value)
-    return normalized
+class Phase(Enum):
+    NONE = auto()
+    RAMP = auto()
+    HOLD = auto()
+    DONE = auto()
 
 
-def _apply_robot_defaults(robot_cfg: RobotConfig) -> None:
+class Task1MotionStepper:
     """
-    task1.py 기본값 느낌 그대로 유지:
-    - so101_follower면 id/calibration_dir/port 기본값 채움
-    """
-    if isinstance(robot_cfg, SO101FollowerConfig):
-        if robot_cfg.id is None:
-            robot_cfg.id = "my_awesome_follower_arm"
-        if robot_cfg.calibration_dir is None:
-            robot_cfg.calibration_dir = Path(
-                "/home/user/.cache/huggingface/lerobot/calibration/robots/so101_follower"
-            )
-        if hasattr(robot_cfg, "port") and robot_cfg.port is None:
-            robot_cfg.port = "/dev/ttyACM0"  # ✅ 요청대로 기본 /dev/ttyACM0
-
-
-def _validate_action_keys(action: dict[str, float], action_features: set[str]) -> None:
-    unknown = set(action) - action_features
-    if unknown:
-        known = ", ".join(sorted(action_features))
-        raise ValueError(f"Unknown action keys: {sorted(unknown)}. Expected subset of: {known}")
-
-
-def _fill_missing_with_current(robot, action_features: set[str], target_action: dict[str, float], use_current: bool) -> dict[str, float]:
-    if use_current and len(target_action) < len(action_features):
-        obs = robot.get_observation()
-        for key in action_features - set(target_action):
-            target_action[key] = obs[key]
-    return target_action
-
-
-def _ramp_to_action(robot, action_features: set[str], target_action: dict[str, float], ramp_time_s: float, ramp_interval_s: float) -> None:
-    if ramp_time_s <= 0:
-        robot.send_action(target_action)
-        return
-
-    obs = robot.get_observation()
-    start_action = {k: obs[k] for k in action_features}
-    start_t = time.perf_counter()
-    while True:
-        elapsed = time.perf_counter() - start_t
-        alpha = min(1.0, elapsed / ramp_time_s)
-        ramp_action = {k: start_action[k] + alpha * (target_action[k] - start_action[k]) for k in action_features}
-        robot.send_action(ramp_action)
-        if alpha >= 1.0:
-            break
-        precise_sleep(ramp_interval_s)
-
-
-def _hold_action(robot, action: dict[str, float], hold_s: float, hold_interval_s: float) -> None:
-    if hold_s <= 0:
-        return
-    end_time = time.perf_counter() + hold_s
-    while time.perf_counter() < end_time:
-        robot.send_action(action)
-        precise_sleep(hold_interval_s)
-
-
-def _validate_sequences(cfg: Task1MotionConfig) -> None:
-    if not cfg.initial_sequence:
-        raise ValueError("initial_sequence is empty.")
-    if not cfg.return_sequence:
-        raise ValueError("return_sequence is empty.")
-
-    if cfg.enforce_sequence_lengths:
-        if len(cfg.initial_sequence) != cfg.initial_sequence_len:
-            raise ValueError(f"initial_sequence must have {cfg.initial_sequence_len} poses, got {len(cfg.initial_sequence)}.")
-        if len(cfg.return_sequence) != cfg.return_sequence_len:
-            raise ValueError(f"return_sequence must have {cfg.return_sequence_len} poses, got {len(cfg.return_sequence)}.")
-
-
-def _run_sequence(robot, action_features: set[str], sequence: list[dict[str, float]], cfg: Task1MotionConfig) -> Optional[dict[str, float]]:
-    last_action = None
-    for idx, pose in enumerate(sequence, start=1):
-        target = _normalize_action_keys(pose)
-        _validate_action_keys(target, action_features)
-        target = _fill_missing_with_current(robot, action_features, target, cfg.use_current_for_missing)
-
-        if cfg.log_action:
-            logging.info("[TASK1] pose %d/%d: %s", idx, len(sequence), target)
-
-        _ramp_to_action(robot, action_features, target, cfg.ramp_time_s, cfg.ramp_interval_s)
-        _hold_action(robot, target, cfg.pose_hold_s, cfg.hold_interval_s)
-        last_action = target
-    return last_action
-
-
-# -------------------------
-# Controller (B method: keep holding in main loop)
-# -------------------------
-class Task1Controller:
-    """
-    메인 루프(main_runtime)에서:
-      - start() 한 번 호출
-      - WAIT_* 동안 hold_tick() 주기적으로 호출 (자세 유지)
-      - YOLO trigger 시 do_return() 호출
+    ✅ 30Hz step 기반 Task1 모션
+    - start_initial(): initial 수행 시작
+    - start_return(): return 수행 시작
+    - interrupt_to_return(): initial 수행 중 즉시 return으로 전환
+    - step(): 1 tick에서 action 1회 send
     """
 
-    def __init__(self, cfg: Task1MotionConfig):
+    def __init__(self, robot, cfg: Task1MotionConfig, action_features: Optional[set[str]] = None):
+        self.robot = robot
         self.cfg = cfg
-        _apply_robot_defaults(self.cfg.robot)
-        _validate_sequences(self.cfg)
+        self.action_features = action_features or set(robot.action_features.keys())
 
-        self.robot = make_robot_from_config(self.cfg.robot)
-        self.action_features: set[str] = set()
-        self.rest_action: Optional[dict[str, float]] = None
-        self.hold_action: Optional[dict[str, float]] = None
+        self._validate_sequences()
 
-        self._last_hold_send_t = 0.0
+        self.mode: Mode = Mode.NONE
+        self.phase: Phase = Phase.NONE
 
-    def connect(self):
-        logging.info("[TASK1] connecting robot...")
-        self.robot.connect()
-        self.action_features = set(self.robot.action_features.keys())
-        logging.info("[TASK1] connected. action_features=%d", len(self.action_features))
+        self._seq: List[Dict[str, float]] = []
+        self._pose_idx: int = 0
+        self._target: Optional[Dict[str, float]] = None
 
-        # build rest_action
-        if self.cfg.rest_action is None:
-            rest = {name: 0.0 for name in self.action_features}
-        else:
-            rest = _normalize_action_keys(self.cfg.rest_action)
-            _validate_action_keys(rest, self.action_features)
-            rest = _fill_missing_with_current(self.robot, self.action_features, rest, self.cfg.use_current_for_missing)
-        self.rest_action = rest
+        self._ramp_start_t: float = 0.0
+        self._hold_end_t: float = 0.0
 
-    def disconnect(self):
-        logging.info("[TASK1] disconnecting robot...")
-        try:
-            self.robot.disconnect()
-        except Exception:
-            logging.exception("[TASK1] disconnect error")
+        self._start_action_vec: Optional[np.ndarray] = None
+        self._target_action_vec: Optional[np.ndarray] = None
+        self._keys_sorted: List[str] = sorted(self.action_features)
 
-    def start(self):
+        self._last_pose_action: Optional[Dict[str, float]] = None
+
+    # ---------------- public API ----------------
+
+    def start_initial(self):
+        self.mode = Mode.INITIAL
+        self._seq = self.cfg.initial_sequence
+        self._pose_idx = 0
+        self._enter_pose_ramp(from_current=True)
+        logging.info("[TASK1] start_initial (stepper)")
+
+    def start_return(self):
+        self.mode = Mode.RETURN
+        self._seq = self.cfg.return_sequence
+        self._pose_idx = 0
+        self._enter_pose_ramp(from_current=True)
+        logging.info("[TASK1] start_return (stepper)")
+
+    def interrupt_to_return(self):
         """
-        Task1 시작 동작:
-          1) rest로 램프 이동
-          2) initial_sequence 실행
-          3) 마지막 포즈를 hold_action으로 설정
+        ✅ initial 진행 중이면 즉시 return으로 전환
         """
-        if self.rest_action is None:
-            raise RuntimeError("connect() must be called before start().")
-
-        logging.info("[TASK1] moving to rest...")
-        _ramp_to_action(self.robot, self.action_features, self.rest_action, self.cfg.ramp_time_s, self.cfg.ramp_interval_s)
-        _hold_action(self.robot, self.rest_action, self.cfg.pose_hold_s, self.cfg.hold_interval_s)
-
-        logging.info("[TASK1] running initial sequence...")
-        last = _run_sequence(self.robot, self.action_features, self.cfg.initial_sequence, self.cfg)
-        self.hold_action = last if last is not None else self.rest_action
-
-        logging.info("[TASK1] start done. hold_action set.")
-        self._last_hold_send_t = 0.0  # reset tick timer
-
-    def hold_tick(self):
-        """
-        ✅ 정석(B) 유지 방식:
-        main loop에서 자주 호출하되, 실제 send_action은 hold_interval_s마다만 수행.
-        """
-        if self.hold_action is None:
+        if self.mode != Mode.INITIAL:
             return
-        now = time.perf_counter()
-        if (now - self._last_hold_send_t) >= float(self.cfg.hold_interval_s):
-            self.robot.send_action(self.hold_action)
-            self._last_hold_send_t = now
+        logging.info("[TASK1] interrupt_to_return requested")
+        self.mode = Mode.RETURN
+        self._seq = self.cfg.return_sequence
+        self._pose_idx = 0
+        self._enter_pose_ramp(from_current=True)
 
-    def do_return(self):
+    def is_initial_done(self) -> bool:
+        return self.mode == Mode.INITIAL and self.phase == Phase.DONE
+
+    def is_return_done(self) -> bool:
+        return self.mode == Mode.RETURN and self.phase == Phase.DONE
+
+    def get_last_pose_action(self) -> Optional[Dict[str, float]]:
         """
-        YOLO trigger 시 실행:
-          1) return_sequence 실행
-          2) rest로 복귀
-          3) 이후 hold_action = rest로 바꿈 (계속 유지 가능)
+        initial 완료 시 마지막 포즈(action dict). hold에 쓰면 됨.
         """
-        if self.rest_action is None:
-            raise RuntimeError("connect() must be called before do_return().")
+        return self._last_pose_action
 
-        logging.info("[TASK1] RETURN sequence...")
-        _run_sequence(self.robot, self.action_features, self.cfg.return_sequence, self.cfg)
+    def step(self, now: Optional[float] = None) -> None:
+        """
+        30Hz 루프에서 매 tick 호출.
+        - 내부 상태에 따라 ramp 또는 hold를 수행하고 send_action 1회 실행
+        """
+        if self.mode == Mode.NONE or self.phase in (Phase.NONE, Phase.DONE):
+            return
 
-        logging.info("[TASK1] back to rest...")
-        _ramp_to_action(self.robot, self.action_features, self.rest_action, self.cfg.ramp_time_s, self.cfg.ramp_interval_s)
-        _hold_action(self.robot, self.rest_action, self.cfg.pose_hold_s, self.cfg.hold_interval_s)
+        if now is None:
+            now = time.perf_counter()
 
-        self.hold_action = self.rest_action
-        self._last_hold_send_t = 0.0
-        logging.info("[TASK1] return done. holding rest.")
+        if self.phase == Phase.RAMP:
+            self._step_ramp(now)
+        elif self.phase == Phase.HOLD:
+            self._step_hold(now)
+
+    # ---------------- internals ----------------
+
+    def _validate_sequences(self):
+        if not self.cfg.initial_sequence:
+            raise ValueError("initial_sequence is empty")
+        if not self.cfg.return_sequence:
+            raise ValueError("return_sequence is empty")
+        if self.cfg.enforce_sequence_lengths:
+            if len(self.cfg.initial_sequence) != int(self.cfg.initial_sequence_len):
+                raise ValueError(f"initial_sequence must have {self.cfg.initial_sequence_len} poses")
+            if len(self.cfg.return_sequence) != int(self.cfg.return_sequence_len):
+                raise ValueError(f"return_sequence must have {self.cfg.return_sequence_len} poses")
+
+    def _validate_action_keys(self, action: Dict[str, float]):
+        unknown = set(action) - self.action_features
+        if unknown:
+            known = ", ".join(sorted(self.action_features))
+            raise ValueError(f"Unknown action keys: {sorted(unknown)}. Expected subset of: {known}")
+
+    def _fill_missing_with_current(self, target: Dict[str, float]) -> Dict[str, float]:
+        if self.cfg.use_current_for_missing and len(target) < len(self.action_features):
+            obs = self.robot.get_observation()
+            for k in self.action_features - set(target):
+                target[k] = float(obs[k])
+        return target
+
+    def _pose_to_target_action(self, pose: Dict[str, float]) -> Dict[str, float]:
+        target = normalize_action_keys(pose)
+        self._validate_action_keys(target)
+        target = self._fill_missing_with_current(target)
+        return target
+
+    def _action_dict_to_vec(self, action: Dict[str, float]) -> np.ndarray:
+        return np.array([float(action[k]) for k in self._keys_sorted], dtype=np.float32)
+
+    def _vec_to_action_dict(self, vec: np.ndarray) -> Dict[str, float]:
+        return {k: float(v) for k, v in zip(self._keys_sorted, vec.tolist())}
+
+    def _enter_pose_ramp(self, from_current: bool):
+        if self._pose_idx >= len(self._seq):
+            self.phase = Phase.DONE
+            logging.info("[TASK1] %s sequence done", self.mode.name)
+            return
+
+        pose = self._seq[self._pose_idx]
+        target = self._pose_to_target_action(pose)
+
+        obs = self.robot.get_observation()
+        start_action = {k: float(obs[k]) for k in self.action_features} if from_current else (self._last_pose_action or target)
+
+        # store
+        self._target = target
+        self._ramp_start_t = time.perf_counter()
+        self.phase = Phase.RAMP
+
+        self._start_action_vec = self._action_dict_to_vec(start_action)
+        self._target_action_vec = self._action_dict_to_vec(target)
+
+        logging.info("[TASK1] %s pose %d/%d -> RAMP",
+                     self.mode.name, self._pose_idx + 1, len(self._seq))
+
+        # ramp_time_s가 0이면 즉시 HOLD로 전환
+        if float(self.cfg.ramp_time_s) <= 0:
+            self.robot.send_action(target)
+            self._enter_pose_hold()
+
+    def _enter_pose_hold(self):
+        assert self._target is not None
+        self.phase = Phase.HOLD
+        self._hold_end_t = time.perf_counter() + float(self.cfg.pose_hold_s)
+        self._last_pose_action = dict(self._target)
+
+        logging.info("[TASK1] %s pose %d/%d -> HOLD",
+                     self.mode.name, self._pose_idx + 1, len(self._seq))
+
+        # pose_hold_s가 0이면 바로 다음 pose로
+        if float(self.cfg.pose_hold_s) <= 0:
+            self._advance_pose()
+
+    def _advance_pose(self):
+        self._pose_idx += 1
+        if self._pose_idx >= len(self._seq):
+            self.phase = Phase.DONE
+            logging.info("[TASK1] %s sequence DONE", self.mode.name)
+            return
+        self._enter_pose_ramp(from_current=True)
+
+    def _step_ramp(self, now: float):
+        assert self._start_action_vec is not None and self._target_action_vec is not None and self._target is not None
+
+        T = float(self.cfg.ramp_time_s)
+        if T <= 1e-6:
+            # 방어
+            self.robot.send_action(self._target)
+            self._enter_pose_hold()
+            return
+
+        alpha = min(1.0, (now - self._ramp_start_t) / T)
+        vec = self._start_action_vec + alpha * (self._target_action_vec - self._start_action_vec)
+        action = self._vec_to_action_dict(vec)
+        self.robot.send_action(action)
+
+        if alpha >= 1.0:
+            self._enter_pose_hold()
+
+    def _step_hold(self, now: float):
+        assert self._target is not None
+        # hold 동안에는 target pose를 계속 refresh
+        self.robot.send_action(self._target)
+
+        if now >= self._hold_end_t:
+            self._advance_pose()

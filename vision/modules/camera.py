@@ -1,4 +1,3 @@
-# Panbot/vision/modules/camera.py
 from __future__ import annotations
 
 import cv2
@@ -24,9 +23,11 @@ def backend_to_cv2(backend: str) -> int:
 def open_camera(cam_index: int, backend: str, mjpg: bool, width: int, height: int, fps: int) -> cv2.VideoCapture:
     api = backend_to_cv2(backend)
     cap = cv2.VideoCapture(cam_index, api)
+
     if not cap.isOpened():
         return cap
 
+    # Apply settings (best effort)
     if mjpg:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     if width > 0:
@@ -36,6 +37,7 @@ def open_camera(cam_index: int, backend: str, mjpg: bool, width: int, height: in
     if fps > 0:
         cap.set(cv2.CAP_PROP_FPS, float(fps))
 
+    # Read back actual
     actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     actual_fps = float(cap.get(cv2.CAP_PROP_FPS))
