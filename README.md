@@ -337,7 +337,11 @@ task:
 ### 3) Run
 
 ```bash
-python Panbot/control/main_runtime.py --config Panbot/config/runtime.yaml
+cd ~/Panbot
+
+chmod +x scripts/start_all.sh
+
+./scripts/start_all.sh
 ```
 
 ---
