@@ -1,20 +1,21 @@
 # Panbot/config/runtime.yaml
 
 paths:
-  # Vision warp corners (4K용)
   corners: "Panbot/vision/calibration/corners.json"
-
-  # Vision models
   yolo_model: "Panbot/vision/models/runs/batter_seg_local_v1/weights/best.pt"
   gru_ckpt: "Panbot/vision/models/runs/resnet18_gru16_cls/best.pt"
+
+log:
+  dir: "Panbot/logs"
+  level: "INFO"
 
 robot:
   type: "so101_follower"
   port: "/dev/ttyACM0"
   id: "my_awesome_follower_arm"
-  calibration_dir: ""  # 필요 시 경로 입력, 아니면 빈 문자열
+  calibration_dir: ""  # 필요 시 경로, 아니면 빈 문자열
 
-  # ⚠️ policy에서 쓸 카메라들 (vision cam과는 별도, stage3/4 때만 사용)
+  # ⚠️ policy(LeRobot)에서 쓸 카메라들 (vision cam과 별도)
   cameras:
     right:
       type: "opencv"
@@ -46,19 +47,22 @@ robot:
       fourcc: "MJPG"
 
 vision:
-  # YOLO/GRU가 쓰는 "하나의" 비전 카메라 (같은 카메라라서 동시에 못 돌림)
+  # ✅ YOLO/GRU가 공유해서 쓰는 "단일" 비전 카메라
   cam_index: 0
   backend: "v4l2"
   mjpg: true
 
-  # 4K 고정
   width: 3840
   height: 2160
   fps: 30
 
+  # UI
   show: true
   yolo_preview_scale: 0.55
   gru_preview_scale: 0.30
+
+  # watchdog
+  watchdog_s: 2.0
 
 yolo_trigger:
   conf: 0.25
@@ -66,6 +70,8 @@ yolo_trigger:
   area_thr_ratio: 0.17
   hold_frames: 30
   use_warp: true
+  warp_w: 0   # 0이면 corners 기반 자동
+  warp_h: 0
 
 gru_trigger:
   image_size: 224
@@ -75,16 +81,21 @@ gru_trigger:
   ready_hold: 3
   amp: true
   use_warp: true
+  warp_w: 0   # 0이면 corners 기반 자동
+  warp_h: 0
 
 task:
-  # 로봇 제어 루프(요청: 30Hz)
+  # main loop (권장: task.hz == policy_fps == vision.fps 로 맞추기)
   hz: 30
 
-  # Task1 motion
+  # Task1 motion stepper
   task1_ramp_time_s: 3.0
   task1_pose_hold_s: 1.0
 
-  # Task2/3 (임시로 duration 기반)
+  # Base pose 유지
+  base_pose_hold_interval_s: 0.25
+
+  # Policy
   policy_fps: 30
   task2_duration_s: 10.0
   task3_duration_s: 10.0
@@ -120,6 +131,9 @@ policies:
     rename_map: {}
     dataset_repo_id: null
     dataset_root: null
+    use_amp: true
+    print_joints: false
+    print_joints_every: 30
 
   policy2:
     repo_id: "ispaik06/act_panbot_task3_3"
@@ -127,3 +141,6 @@ policies:
     rename_map: {}
     dataset_repo_id: null
     dataset_root: null
+    use_amp: true
+    print_joints: false
+    print_joints_every: 30

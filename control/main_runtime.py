@@ -143,7 +143,7 @@ def _read_runtime_config(yaml_path: Path) -> Dict[str, Any]:
     cfg["vision"]["height"] = _env_override_int("PANBOT_VISION_H", int(cfg["vision"].get("height", 2160)))
     cfg["vision"]["fps"] = _env_override_int("PANBOT_VISION_FPS", int(cfg["vision"].get("fps", 30)))
 
-    cfg["ui"]["show"] = bool(int(_env_override_str("PANBOT_SHOW", str(int(cfg["ui"].get("show", 1)))))))
+    cfg["ui"]["show"] = bool(int(_env_override_str("PANBOT_SHOW", str(int(cfg["ui"].get("show", 1))))))
     cfg["ui"]["yolo_preview_scale"] = _env_override_float("PANBOT_YOLO_PREVIEW", float(cfg["ui"].get("yolo_preview_scale", 0.55)))
     cfg["ui"]["gru_preview_scale"] = _env_override_float("PANBOT_GRU_PREVIEW", float(cfg["ui"].get("gru_preview_scale", 0.30)))
 
