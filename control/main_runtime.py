@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 from pathlib import Path
 
@@ -11,17 +12,14 @@ from vision.modules.camera import open_camera, resize_for_preview
 from vision.modules.yolo_batter import YOLOBatterConfig, YOLOBatterInfer
 from vision.modules.gru_bubble import GRUBubbleConfig, GRUBubbleInfer
 
-
-def task1_return_action():
-    # TODO: 여기에 실제 Task1 return 동작을 연결하세요.
-    # 예: task1.run_return()
-    print("[TASK] Task1 return action (TODO)")
+from tasks.task1_motion import Task1MotionConfig, Task1Controller
+from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 
 
 def run_policy_action():
     # TODO: 여기에 실제 policy 실행을 연결하세요.
     # 예: subprocess로 lerobot-eval 실행 or 파이썬 함수 호출
-    print("[TASK] Run policy (TODO)")
+    logging.info("[POLICY] TODO: run policy here")
 
 
 def main():
@@ -60,12 +58,33 @@ def main():
 
     # show
     ap.add_argument("--show", action="store_true", default=True)
+
+    # robot args (✅ main_runtime에서 받음)
+    ap.add_argument("--robot_id", type=str, default="my_awesome_follower_arm")
+    ap.add_argument("--robot_port", type=str, default="/dev/ttyACM0")
+    ap.add_argument(
+        "--robot_calibration_dir",
+        type=str,
+        default="/home/user/.cache/huggingface/lerobot/calibration/robots/so101_follower",
+    )
+
+    # task1 hold interval override (optional)
+    ap.add_argument("--task1_hold_interval_s", type=float, default=0.25)
+    ap.add_argument("--task1_ramp_time_s", type=float, default=3.0)
+
     args = ap.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
 
     root = Path(args.root).resolve() if Path(args.root).exists() else Path.cwd() / args.root
     corners_path = (root / args.corners).resolve()
 
-    # init infer modules
+    # -------------------------
+    # Vision modules
+    # -------------------------
     yolo = YOLOBatterInfer(
         YOLOBatterConfig(
             model_path=(root / args.yolo_model).resolve(),
@@ -89,89 +108,112 @@ def main():
         )
     )
 
-    # open camera ONCE (4K fixed)
+    # -------------------------
+    # Robot (Task1 controller)
+    # -------------------------
+    robot_cfg = SO101FollowerConfig(
+        id=args.robot_id,
+        port=args.robot_port,
+        calibration_dir=Path(args.robot_calibration_dir),
+    )
+
+    task1_cfg = Task1MotionConfig(
+        robot=robot_cfg,
+        hold_interval_s=float(args.task1_hold_interval_s),
+        ramp_time_s=float(args.task1_ramp_time_s),
+    )
+    task1 = Task1Controller(task1_cfg)
+
+    # -------------------------
+    # Camera open ONCE (4K fixed)
+    # -------------------------
     cap = open_camera(args.cam, args.backend, True, args.width, args.height, args.fps)
     if not cap.isOpened():
         raise RuntimeError("Failed to open camera")
 
     # state machine
-    # Flow:
-    # START -> WAIT_YOLO -> (YOLO trigger) -> Task1 return -> WAIT_GRU -> (GRU trigger) -> RUN_POLICY
     state = "WAIT_YOLO"
-    print("[FLOW] START -> WAIT_YOLO")
+    logging.info("[FLOW] START -> WAIT_YOLO")
 
-    # reset internal states
     yolo.reset()
     gru.reset()
 
     last_state_print = time.time()
 
     try:
+        # ✅ 로봇 연결 + Task1 시작 시퀀스 실행
+        task1.connect()
+        task1.start()
+
         while True:
             ok, frame = cap.read()
             if not ok or frame is None:
                 continue
+
+            # ✅ 어떤 상태든 Task1 hold 유지 (정석 B)
+            task1.hold_tick()
 
             if state == "WAIT_YOLO":
                 triggered, vis, info = yolo.step(frame)
                 preview_scale = float(args.preview_scale_yolo)
 
                 if time.time() - last_state_print > 2.0:
-                    print(f"[STATE] WAIT_YOLO ratio={info['ratio']:.3f} hit={info['hit_count']}/{info['hold_frames']} trig={info['triggered']}")
+                    logging.info("[STATE] WAIT_YOLO ratio=%.3f hit=%d/%d trig=%s",
+                                 info["ratio"], info["hit_count"], info["hold_frames"], info["triggered"])
                     last_state_print = time.time()
 
                 if triggered:
-                    print("[FLOW] YOLO_TRIGGER -> Task1 return")
-                    task1_return_action()
+                    logging.info("[FLOW] YOLO_TRIGGER -> Task1 RETURN")
+                    task1.do_return()
 
-                    # 다음 단계로 넘어갈 때 GRU 상태 초기화 권장
                     gru.reset()
                     state = "WAIT_GRU"
-                    print("[FLOW] now -> WAIT_GRU")
+                    logging.info("[FLOW] now -> WAIT_GRU")
 
             elif state == "WAIT_GRU":
                 triggered, vis, info = gru.step(frame)
                 preview_scale = float(args.preview_scale_gru)
 
                 if time.time() - last_state_print > 2.0:
-                    print(f"[STATE] WAIT_GRU label={info['label']} conf={info['conf']:.2f} hold={info['ready_streak']}/{info['ready_hold']} trig={info['triggered']}")
+                    logging.info("[STATE] WAIT_GRU label=%s conf=%.2f hold=%d/%d trig=%s",
+                                 info["label"], info["conf"], info["ready_streak"], info["ready_hold"], info["triggered"])
                     last_state_print = time.time()
 
                 if triggered:
-                    print("[FLOW] GRU_READY -> RUN_POLICY")
+                    logging.info("[FLOW] GRU_READY -> RUN_POLICY")
                     run_policy_action()
                     state = "RUN_POLICY"
-                    print("[FLOW] now -> RUN_POLICY")
+                    logging.info("[FLOW] now -> RUN_POLICY")
 
             else:  # RUN_POLICY
-                # policy를 “블로킹으로 실행”하면 여기 루프가 잠깐 멈출 수 있음.
-                # 필요하면 여기서 policy 상태 관리/중단키 등을 확장하면 됩니다.
                 vis = frame
                 preview_scale = 0.35
                 if time.time() - last_state_print > 2.0:
-                    print("[STATE] RUN_POLICY ... (TODO: implement)")
+                    logging.info("[STATE] RUN_POLICY ... (TODO: implement)")
                     last_state_print = time.time()
 
             if args.show:
                 disp = resize_for_preview(vis, preview_scale)
-                cv2.imshow("Panbot Runtime (A: single camera)", disp)
+                cv2.imshow("Panbot Runtime (single camera 4K)", disp)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
-                # 디버그용 강제 전환 키
+
+                # 디버그 전환
                 if key == ord("1"):
-                    print("[DEBUG] force WAIT_YOLO")
+                    logging.info("[DEBUG] force WAIT_YOLO")
                     yolo.reset()
                     state = "WAIT_YOLO"
                 if key == ord("2"):
-                    print("[DEBUG] force WAIT_GRU")
+                    logging.info("[DEBUG] force WAIT_GRU")
                     gru.reset()
                     state = "WAIT_GRU"
 
     finally:
         cap.release()
         cv2.destroyAllWindows()
-        print("[DONE]")
+        task1.disconnect()
+        logging.info("[DONE]")
 
 
 if __name__ == "__main__":
