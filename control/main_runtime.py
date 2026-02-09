@@ -30,7 +30,7 @@ from Panbot.policies.common_policy_runner import run_pretrained_policy_shared_ro
 # -----------------------------
 # Defaults (fallback if yaml missing)
 # -----------------------------
-DEFAULT_BASE_POSE = dict(DEFAULT_REST_ACTION)  # task1 rest_action == base pose로 사용
+DEFAULT_BASE_POSE = dict(DEFAULT_REST_ACTION)
 
 
 @dataclass
@@ -40,60 +40,88 @@ class RuntimePaths:
     gru_ckpt: Path
 
 
-def _env_override_str(key: str, default: Optional[str] = None) -> Optional[str]:
+# -----------------------------
+# Env override helpers
+# -----------------------------
+def _env_get(key: str) -> Optional[str]:
     v = os.environ.get(key, None)
-    return v if (v is not None and v != "") else default
+    if v is None:
+        return None
+    v = str(v).strip()
+    return v if v != "" else None
 
 
-def _env_override_int(key: str, default: int) -> int:
-    v = os.environ.get(key, None)
-    if v is None or v == "":
-        return default
-    return int(v)
+def _env_override_str(key: str, current: Optional[str]) -> Optional[str]:
+    v = _env_get(key)
+    return v if v is not None else current
 
 
-def _env_override_float(key: str, default: float) -> float:
-    v = os.environ.get(key, None)
-    if v is None or v == "":
-        return default
-    return float(v)
+def _env_override_int(key: str, current: int) -> int:
+    v = _env_get(key)
+    return int(v) if v is not None else int(current)
 
 
-def _setup_logging(log_dir: Path) -> None:
+def _env_override_float(key: str, current: float) -> float:
+    v = _env_get(key)
+    return float(v) if v is not None else float(current)
+
+
+def _env_override_bool(key: str, current: bool) -> bool:
     """
-    ✅ 로그는 덮어쓰기 아니라 쌓이도록(append)
+    허용: 1/0, true/false, yes/no, on/off
+    """
+    v = _env_get(key)
+    if v is None:
+        return bool(current)
+    s = v.lower()
+    if s in ("1", "true", "yes", "y", "on"):
+        return True
+    if s in ("0", "false", "no", "n", "off"):
+        return False
+    # 숫자로도 처리
+    try:
+        return bool(int(s))
+    except Exception:
+        raise ValueError(f"Invalid bool env: {key}={v}")
+
+
+# -----------------------------
+# Logging
+# -----------------------------
+def _setup_logging(log_dir: Path, level: str = "INFO") -> None:
+    """
     - 터미널 + 파일 동시 출력
+    - 중복 핸들러 방지
     """
-    init_logging()  # lerobot 기본 logging 초기화 (있으면 활용)
+    init_logging()
     log_dir.mkdir(parents=True, exist_ok=True)
+
     ts = time.strftime("%Y%m%d_%H%M%S")
     log_path = log_dir / f"main_runtime_{ts}.log"
 
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
 
-    # 이미 handler가 붙어있을 수 있으니 중복 방지
+    # 레벨
+    lvl = getattr(logging, str(level).upper(), logging.INFO)
+    root.setLevel(lvl)
+
+    # 기존 핸들러 정리(중복 방지): Stream/File만 제거
     for h in list(root.handlers):
-        # init_logging이 붙인 handler 유지하되, 중복 스트림/파일은 정리
-        pass
+        if isinstance(h, (logging.StreamHandler, logging.FileHandler)):
+            root.removeHandler(h)
+
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
 
     file_handler = logging.FileHandler(str(log_path), mode="a", encoding="utf-8")
-    file_handler.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    file_handler.setLevel(lvl)
     file_handler.setFormatter(fmt)
 
     stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setLevel(logging.INFO)
+    stream_handler.setLevel(lvl)
     stream_handler.setFormatter(fmt)
 
-    # 중복 추가 방지: 같은 타입 handler 이미 있으면 스킵
-    has_file = any(isinstance(h, logging.FileHandler) for h in root.handlers)
-    has_stream = any(isinstance(h, logging.StreamHandler) for h in root.handlers)
-
-    if not has_file:
-        root.addHandler(file_handler)
-    if not has_stream:
-        root.addHandler(stream_handler)
+    root.addHandler(file_handler)
+    root.addHandler(stream_handler)
 
     logging.info("==================================================")
     logging.info("[main_runtime] logging started")
@@ -101,6 +129,9 @@ def _setup_logging(log_dir: Path) -> None:
     logging.info("==================================================")
 
 
+# -----------------------------
+# YAML
+# -----------------------------
 def _load_yaml(path: Path) -> Dict[str, Any]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -113,53 +144,158 @@ def _require_file(p: Path, name: str) -> None:
         raise FileNotFoundError(f"missing {name}: {p}")
 
 
-def _read_runtime_config(yaml_path: Path) -> Dict[str, Any]:
-    cfg = _load_yaml(yaml_path)
+def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ✅ runtime.yaml 구조에 맞게 섹션 보장 + env override 적용
 
-    # ✅ 환경변수 override (start_all.sh에서 넣기 쉬움)
-    # 예: PANBOT_ROBOT_PORT=/dev/ttyACM0
-    #     PANBOT_VISION_CAM=0
-    #     PANBOT_POLICY1_DURATION=10
+    Env override (필요한 것만):
+      - PANBOT_ROBOT_PORT
+      - PANBOT_ROBOT_ID
+      - PANBOT_ROBOT_CALIB_DIR
+
+      - PANBOT_VISION_CAM
+      - PANBOT_VISION_BACKEND
+      - PANBOT_VISION_MJPG
+      - PANBOT_VISION_W / H / FPS
+      - PANBOT_SHOW
+      - PANBOT_YOLO_PREVIEW
+      - PANBOT_GRU_PREVIEW
+      - PANBOT_VISION_WATCHDOG
+
+      - PANBOT_TASK_HZ
+      - PANBOT_TASK1_RAMP
+      - PANBOT_TASK1_HOLD
+      - PANBOT_BASE_HOLD
+      - PANBOT_POLICY_FPS
+      - PANBOT_TASK2_DURATION
+      - PANBOT_TASK3_DURATION
+      - PANBOT_WAIT_23
+    """
+    cfg.setdefault("paths", {})
+    cfg.setdefault("log", {})
     cfg.setdefault("robot", {})
     cfg.setdefault("vision", {})
-    cfg.setdefault("task1", {})
-    cfg.setdefault("policy1", {})
-    cfg.setdefault("policy2", {})
-    cfg.setdefault("timing", {})
-    cfg.setdefault("ui", {})
-    cfg.setdefault("paths", {})
+    cfg.setdefault("yolo_trigger", {})
+    cfg.setdefault("gru_trigger", {})
+    cfg.setdefault("task", {})
+    cfg.setdefault("poses", {})
+    cfg.setdefault("policies", {})
 
-    cfg["robot"]["port"] = _env_override_str("PANBOT_ROBOT_PORT", cfg["robot"].get("port", "/dev/ttyACM0"))
-    cfg["robot"]["id"] = _env_override_str("PANBOT_ROBOT_ID", cfg["robot"].get("id", "my_awesome_follower_arm"))
+    # ---- log
+    cfg["log"].setdefault("dir", "Panbot/logs")
+    cfg["log"].setdefault("level", "INFO")
+
+    # ---- robot
+    cfg["robot"].setdefault("type", "so101_follower")
+    cfg["robot"].setdefault("port", "/dev/ttyACM0")
+    cfg["robot"].setdefault("id", "my_awesome_follower_arm")
+    cfg["robot"].setdefault("calibration_dir", "")
+    cfg["robot"].setdefault("cameras", {})
+
+    cfg["robot"]["port"] = _env_override_str("PANBOT_ROBOT_PORT", str(cfg["robot"]["port"]))
+    cfg["robot"]["id"] = _env_override_str("PANBOT_ROBOT_ID", str(cfg["robot"]["id"]))
     cfg["robot"]["calibration_dir"] = _env_override_str(
-        "PANBOT_ROBOT_CALIB_DIR", cfg["robot"].get("calibration_dir", "")
+        "PANBOT_ROBOT_CALIB_DIR", str(cfg["robot"].get("calibration_dir", ""))
     )
 
-    cfg["vision"]["cam_index"] = _env_override_int("PANBOT_VISION_CAM", int(cfg["vision"].get("cam_index", 0)))
-    cfg["vision"]["backend"] = _env_override_str("PANBOT_VISION_BACKEND", cfg["vision"].get("backend", "v4l2"))
-    cfg["vision"]["mjpg"] = bool(int(_env_override_str("PANBOT_VISION_MJPG", str(int(cfg["vision"].get("mjpg", 1))))))
+    # ---- vision
+    cfg["vision"].setdefault("cam_index", 0)
+    cfg["vision"].setdefault("backend", "v4l2")
+    cfg["vision"].setdefault("mjpg", True)
+    cfg["vision"].setdefault("width", 3840)
+    cfg["vision"].setdefault("height", 2160)
+    cfg["vision"].setdefault("fps", 30)
+    cfg["vision"].setdefault("show", True)
+    cfg["vision"].setdefault("yolo_preview_scale", 0.55)
+    cfg["vision"].setdefault("gru_preview_scale", 0.30)
+    cfg["vision"].setdefault("watchdog_s", 2.0)
 
-    cfg["vision"]["width"] = _env_override_int("PANBOT_VISION_W", int(cfg["vision"].get("width", 3840)))
-    cfg["vision"]["height"] = _env_override_int("PANBOT_VISION_H", int(cfg["vision"].get("height", 2160)))
-    cfg["vision"]["fps"] = _env_override_int("PANBOT_VISION_FPS", int(cfg["vision"].get("fps", 30)))
+    cfg["vision"]["cam_index"] = _env_override_int("PANBOT_VISION_CAM", int(cfg["vision"]["cam_index"]))
+    cfg["vision"]["backend"] = _env_override_str("PANBOT_VISION_BACKEND", str(cfg["vision"]["backend"]))
+    cfg["vision"]["mjpg"] = _env_override_bool("PANBOT_VISION_MJPG", bool(cfg["vision"]["mjpg"]))
 
-    cfg["ui"]["show"] = bool(int(_env_override_str("PANBOT_SHOW", str(int(cfg["ui"].get("show", 1))))))
-    cfg["ui"]["yolo_preview_scale"] = _env_override_float("PANBOT_YOLO_PREVIEW", float(cfg["ui"].get("yolo_preview_scale", 0.55)))
-    cfg["ui"]["gru_preview_scale"] = _env_override_float("PANBOT_GRU_PREVIEW", float(cfg["ui"].get("gru_preview_scale", 0.30)))
+    cfg["vision"]["width"] = _env_override_int("PANBOT_VISION_W", int(cfg["vision"]["width"]))
+    cfg["vision"]["height"] = _env_override_int("PANBOT_VISION_H", int(cfg["vision"]["height"]))
+    cfg["vision"]["fps"] = _env_override_int("PANBOT_VISION_FPS", int(cfg["vision"]["fps"]))
 
-    cfg["task1"]["fps"] = _env_override_int("PANBOT_TASK_HZ", int(cfg["task1"].get("fps", 30)))
-    cfg["task1"]["ramp_time_s"] = _env_override_float("PANBOT_TASK1_RAMP", float(cfg["task1"].get("ramp_time_s", 3.0)))
-    cfg["task1"]["pose_hold_s"] = _env_override_float("PANBOT_TASK1_HOLD", float(cfg["task1"].get("pose_hold_s", 1.0)))
+    cfg["vision"]["show"] = _env_override_bool("PANBOT_SHOW", bool(cfg["vision"]["show"]))
+    cfg["vision"]["yolo_preview_scale"] = _env_override_float(
+        "PANBOT_YOLO_PREVIEW", float(cfg["vision"]["yolo_preview_scale"])
+    )
+    cfg["vision"]["gru_preview_scale"] = _env_override_float(
+        "PANBOT_GRU_PREVIEW", float(cfg["vision"]["gru_preview_scale"])
+    )
+    cfg["vision"]["watchdog_s"] = _env_override_float("PANBOT_VISION_WATCHDOG", float(cfg["vision"]["watchdog_s"]))
 
-    cfg["timing"]["wait_task2_to_task3_s"] = _env_override_float(
-        "PANBOT_WAIT_23", float(cfg["timing"].get("wait_task2_to_task3_s", 30.0))
+    # ---- yolo_trigger
+    cfg["yolo_trigger"].setdefault("conf", 0.25)
+    cfg["yolo_trigger"].setdefault("imgsz", 640)
+    cfg["yolo_trigger"].setdefault("area_thr_ratio", 0.17)
+    cfg["yolo_trigger"].setdefault("hold_frames", 30)
+    cfg["yolo_trigger"].setdefault("use_warp", True)
+    cfg["yolo_trigger"].setdefault("warp_w", 0)
+    cfg["yolo_trigger"].setdefault("warp_h", 0)
+
+    # ---- gru_trigger
+    cfg["gru_trigger"].setdefault("image_size", 224)
+    cfg["gru_trigger"].setdefault("seq_len", 16)
+    cfg["gru_trigger"].setdefault("stride", 6)
+    cfg["gru_trigger"].setdefault("ema", 0.7)
+    cfg["gru_trigger"].setdefault("ready_hold", 3)
+    cfg["gru_trigger"].setdefault("amp", True)
+    cfg["gru_trigger"].setdefault("use_warp", True)
+    cfg["gru_trigger"].setdefault("warp_w", 0)
+    cfg["gru_trigger"].setdefault("warp_h", 0)
+
+    # ---- task
+    cfg["task"].setdefault("hz", 30)
+    cfg["task"].setdefault("task1_ramp_time_s", 3.0)
+    cfg["task"].setdefault("task1_pose_hold_s", 1.0)
+    cfg["task"].setdefault("base_pose_hold_interval_s", 0.25)
+    cfg["task"].setdefault("policy_fps", 30)
+    cfg["task"].setdefault("task2_duration_s", 10.0)
+    cfg["task"].setdefault("task3_duration_s", 10.0)
+    cfg["task"].setdefault("wait_task2_to_task3_s", 30.0)
+
+    cfg["task"]["hz"] = _env_override_int("PANBOT_TASK_HZ", int(cfg["task"]["hz"]))
+    cfg["task"]["task1_ramp_time_s"] = _env_override_float(
+        "PANBOT_TASK1_RAMP", float(cfg["task"]["task1_ramp_time_s"])
+    )
+    cfg["task"]["task1_pose_hold_s"] = _env_override_float(
+        "PANBOT_TASK1_HOLD", float(cfg["task"]["task1_pose_hold_s"])
+    )
+    cfg["task"]["base_pose_hold_interval_s"] = _env_override_float(
+        "PANBOT_BASE_HOLD", float(cfg["task"]["base_pose_hold_interval_s"])
+    )
+    cfg["task"]["policy_fps"] = _env_override_int("PANBOT_POLICY_FPS", int(cfg["task"]["policy_fps"]))
+    cfg["task"]["task2_duration_s"] = _env_override_float(
+        "PANBOT_TASK2_DURATION", float(cfg["task"]["task2_duration_s"])
+    )
+    cfg["task"]["task3_duration_s"] = _env_override_float(
+        "PANBOT_TASK3_DURATION", float(cfg["task"]["task3_duration_s"])
+    )
+    cfg["task"]["wait_task2_to_task3_s"] = _env_override_float(
+        "PANBOT_WAIT_23", float(cfg["task"]["wait_task2_to_task3_s"])
     )
 
-    cfg["policy1"]["repo_id"] = _env_override_str("PANBOT_POLICY1_REPO", cfg["policy1"].get("repo_id", ""))
-    cfg["policy1"]["duration_s"] = _env_override_float("PANBOT_POLICY1_DURATION", float(cfg["policy1"].get("duration_s", 10.0)))
+    # ---- poses
+    cfg["poses"].setdefault("base_pose", None)
+    cfg["poses"].setdefault("task1_initial_sequence", None)
+    cfg["poses"].setdefault("task1_return_sequence", None)
 
-    cfg["policy2"]["repo_id"] = _env_override_str("PANBOT_POLICY2_REPO", cfg["policy2"].get("repo_id", ""))
-    cfg["policy2"]["duration_s"] = _env_override_float("PANBOT_POLICY2_DURATION", float(cfg["policy2"].get("duration_s", 10.0)))
+    # ---- policies
+    cfg["policies"].setdefault("policy1", {})
+    cfg["policies"].setdefault("policy2", {})
+    cfg["policies"]["policy1"].setdefault("repo_id", "")
+    cfg["policies"]["policy2"].setdefault("repo_id", "")
+
+    # 선택 env override (repo_id)
+    cfg["policies"]["policy1"]["repo_id"] = _env_override_str(
+        "PANBOT_POLICY1_REPO", str(cfg["policies"]["policy1"].get("repo_id", ""))
+    )
+    cfg["policies"]["policy2"]["repo_id"] = _env_override_str(
+        "PANBOT_POLICY2_REPO", str(cfg["policies"]["policy2"].get("repo_id", ""))
+    )
 
     return cfg
 
@@ -172,19 +308,15 @@ def _build_so101_config(robot_cfg: Dict[str, Any]) -> SO101FollowerConfig:
     port = str(robot_cfg.get("port", "/dev/ttyACM0"))
     rid = str(robot_cfg.get("id", "my_awesome_follower_arm"))
     calib_dir = str(robot_cfg.get("calibration_dir", "")).strip() or None
-
     cameras = robot_cfg.get("cameras", {}) or {}
 
     cfg = SO101FollowerConfig(port=port, id=rid, cameras=cameras)
-    if calib_dir is not None:
+    if calib_dir:
         cfg.calibration_dir = calib_dir
     return cfg
 
 
 def _best_effort_safe_pose(robot, base_pose_ctrl: BasePoseController, seconds: float = 1.0) -> None:
-    """
-    어떤 에러가 나도 마지막에 base pose로 보내도록 시도
-    """
     try:
         base_pose_ctrl.enable()
         end = time.perf_counter() + max(0.2, float(seconds))
@@ -205,13 +337,14 @@ def main():
     if not yaml_path.exists():
         raise FileNotFoundError(f"runtime.yaml not found: {yaml_path}")
 
-    cfg = _read_runtime_config(yaml_path)
+    raw = _load_yaml(yaml_path)
+    cfg = _normalize_runtime_config(raw)
 
     # logging
-    log_dir = Path(cfg.get("log_dir", "Panbot/logs")).expanduser().resolve()
-    _setup_logging(log_dir)
+    log_dir = Path(cfg["log"]["dir"]).expanduser().resolve()
+    log_level = str(cfg["log"].get("level", "INFO"))
+    _setup_logging(log_dir, log_level)
     logging.info("[CFG] loaded: %s", yaml_path)
-    logging.info("[CFG] %s", cfg)
 
     # paths
     paths = cfg.get("paths", {}) or {}
@@ -225,33 +358,46 @@ def main():
 
     rp = RuntimePaths(corners=corners, yolo_model=yolo_model, gru_ckpt=gru_ckpt)
 
-    # vision cam config
-    vcfg = cfg.get("vision", {}) or {}
-    cam_index = int(vcfg.get("cam_index", 0))
-    backend = str(vcfg.get("backend", "v4l2"))
-    mjpg = bool(vcfg.get("mjpg", True))
-    width = int(vcfg.get("width", 3840))
-    height = int(vcfg.get("height", 2160))
-    fps = int(vcfg.get("fps", 30))
+    # vision cam config (✅ runtime.yaml: vision.*)
+    vcfg = cfg["vision"]
+    cam_index = int(vcfg["cam_index"])
+    backend = str(vcfg["backend"])
+    mjpg = bool(vcfg["mjpg"])
+    width = int(vcfg["width"])
+    height = int(vcfg["height"])
+    fps = int(vcfg["fps"])
 
-    # ui
-    uicfg = cfg.get("ui", {}) or {}
-    show = bool(uicfg.get("show", True))
-    yolo_preview_scale = float(uicfg.get("yolo_preview_scale", 0.55))
-    gru_preview_scale = float(uicfg.get("gru_preview_scale", 0.30))
+    # vision UI (✅ runtime.yaml: vision.show / scales)
+    show = bool(vcfg["show"])
+    yolo_preview_scale = float(vcfg["yolo_preview_scale"])
+    gru_preview_scale = float(vcfg["gru_preview_scale"])
+    watchdog_s = float(vcfg["watchdog_s"])
+
+    # task (✅ runtime.yaml: task.*)
+    tcfg = cfg["task"]
+    main_hz = int(tcfg["hz"])
+    dt_main = 1.0 / max(1, main_hz)
+
+    task1_ramp = float(tcfg["task1_ramp_time_s"])
+    task1_hold = float(tcfg["task1_pose_hold_s"])
+    base_pose_hold_interval = float(tcfg["base_pose_hold_interval_s"])
+
+    policy_fps = int(tcfg["policy_fps"])
+    task2_duration = float(tcfg["task2_duration_s"])
+    task3_duration = float(tcfg["task3_duration_s"])
+    wait_23 = float(tcfg["wait_task2_to_task3_s"])
 
     # robot
-    robot_cfg_dict = cfg.get("robot", {}) or {}
+    robot_cfg_dict = cfg["robot"]
     robot_cfg = _build_so101_config(robot_cfg_dict)
     robot = make_robot_from_config(robot_cfg)
 
-    # Base pose controller config
-    base_pose = cfg.get("base_pose", None) or DEFAULT_BASE_POSE
-    hold_cfg = HoldConfig(
-        fps=int(cfg.get("task1", {}).get("fps", 30)),
-        hold_interval_s=float(cfg.get("base_pose_hold_interval_s", 0.25)),
-        use_current_for_missing=True,
-    )
+    # poses (✅ runtime.yaml: poses.*)
+    poses = cfg.get("poses", {}) or {}
+    base_pose = poses.get("base_pose", None) or DEFAULT_BASE_POSE
+
+    init_seq = poses.get("task1_initial_sequence", None)
+    ret_seq = poses.get("task1_return_sequence", None)
 
     stop_flag = {"stop": False}
 
@@ -265,7 +411,6 @@ def main():
     cap = None
     base_ctrl = None
 
-    # windows
     yolo_win = "YOLO"
     gru_win = "GRU"
 
@@ -275,11 +420,17 @@ def main():
         robot.connect()
         action_features = set(robot.action_features.keys())
 
+        # base pose controller
+        hold_cfg = HoldConfig(
+            fps=main_hz,
+            hold_interval_s=base_pose_hold_interval,
+            use_current_for_missing=True,
+        )
         base_ctrl = BasePoseController(robot, hold_cfg, action_features=action_features)
         base_ctrl.set_target(base_pose)
         base_ctrl.enable()
 
-        # 2) open vision camera
+        # 2) open vision camera (✅ runtime.yaml: vision.cam_index/backend/mjpg/width/height/fps)
         logging.info("[VISION] open camera...")
         cap = open_camera(
             cam_index=cam_index,
@@ -293,58 +444,61 @@ def main():
             raise RuntimeError(f"Vision camera open failed: index={cam_index}, backend={backend}")
 
         last_frame_ok_t = time.perf_counter()
-        watchdog_s = float(cfg.get("vision_watchdog_s", 2.0))
 
-        # 3) build vision infer objects (re-use your modules)
+        # 3) vision infer objects (✅ runtime.yaml: yolo_trigger / gru_trigger)
+        ycfg = cfg["yolo_trigger"]
         yolo_cfg = YOLOSegConfig(
             model_path=rp.yolo_model,
-            use_warp=True,
-            corners_path=rp.corners,
-            warp_w=int(cfg.get("yolo", {}).get("warp_w", 0)),
-            warp_h=int(cfg.get("yolo", {}).get("warp_h", 0)),
-            area_thr_ratio=float(cfg.get("yolo", {}).get("area_thr_ratio", 0.17)),
-            hold_frames=int(cfg.get("yolo", {}).get("hold_frames", 30)),
-            conf=float(cfg.get("yolo", {}).get("conf", 0.25)),
-            imgsz=int(cfg.get("yolo", {}).get("imgsz", 640)),
+            conf=float(ycfg["conf"]),
+            imgsz=int(ycfg["imgsz"]),
+            use_warp=bool(ycfg["use_warp"]),
+            corners_path=rp.corners if bool(ycfg["use_warp"]) else None,
+            warp_w=int(ycfg.get("warp_w", 0)),
+            warp_h=int(ycfg.get("warp_h", 0)),
+            area_thr_ratio=float(ycfg["area_thr_ratio"]),
+            hold_frames=int(ycfg["hold_frames"]),
         )
         yolo = YOLOSegInfer(yolo_cfg)
 
+        gcfg = cfg["gru_trigger"]
         gru_cfg = GRUInferConfig(
             checkpoint_path=rp.gru_ckpt,
-            use_warp=True,
-            corners_path=rp.corners,
-            warp_w=int(cfg.get("gru", {}).get("warp_w", 0)),
-            warp_h=int(cfg.get("gru", {}).get("warp_h", 0)),
-            image_size=int(cfg.get("gru", {}).get("image_size", 224)),
-            seq_len=int(cfg.get("gru", {}).get("seq_len", 16)),
-            stride=int(cfg.get("gru", {}).get("stride", 6)),
-            ema=float(cfg.get("gru", {}).get("ema", 0.7)),
-            ready_hold=int(cfg.get("gru", {}).get("ready_hold", 3)),
-            amp=bool(cfg.get("gru", {}).get("amp", True)),
+            use_warp=bool(gcfg["use_warp"]),
+            corners_path=rp.corners if bool(gcfg["use_warp"]) else None,
+            warp_w=int(gcfg.get("warp_w", 0)),
+            warp_h=int(gcfg.get("warp_h", 0)),
+            image_size=int(gcfg["image_size"]),
+            seq_len=int(gcfg["seq_len"]),
+            stride=int(gcfg["stride"]),
+            ema=float(gcfg["ema"]),
+            ready_hold=int(gcfg["ready_hold"]),
+            amp=bool(gcfg["amp"]),
         )
         gru = GRUInfer(gru_cfg)
 
-        # 4) Task1 stepper
+        # 4) Task1 stepper (✅ runtime.yaml: task.* + poses sequences)
         t1cfg = Task1MotionConfig(
-            fps=int(cfg.get("task1", {}).get("fps", 30)),
-            ramp_time_s=float(cfg.get("task1", {}).get("ramp_time_s", 3.0)),
-            pose_hold_s=float(cfg.get("task1", {}).get("pose_hold_s", 1.0)),
+            fps=main_hz,
+            ramp_time_s=task1_ramp,
+            pose_hold_s=task1_hold,
         )
+        # sequences override (있으면 적용)
+        if isinstance(init_seq, list) and len(init_seq) > 0:
+            t1cfg.initial_sequence = init_seq
+        if isinstance(ret_seq, list) and len(ret_seq) > 0:
+            t1cfg.return_sequence = ret_seq
+
         task1 = Task1MotionStepper(robot, t1cfg, action_features=action_features)
 
         # =============================
-        # STAGE A: Task1 + YOLO trigger (interrupt)
+        # STAGE 1: Task1 INITIAL + YOLO trigger -> interrupt_to_return
         # =============================
         logging.info("[STAGE1] start Task1 INITIAL + YOLO trigger")
-        base_ctrl.disable()          # task1이 로봇 제어권 가짐
+        base_ctrl.disable()
         task1.start_initial()
 
         stage = "TASK1"
         yolo_triggered = False
-
-        # fixed loop rate
-        main_hz = int(cfg.get("main_hz", 30))
-        dt_main = 1.0 / max(1, main_hz)
 
         while not stop_flag["stop"]:
             loop_start = time.perf_counter()
@@ -353,7 +507,6 @@ def main():
             if ok and frame is not None:
                 last_frame_ok_t = time.perf_counter()
             else:
-                # watchdog
                 if (time.perf_counter() - last_frame_ok_t) > watchdog_s:
                     raise RuntimeError("[FAILSAFE] Vision camera watchdog timeout")
                 time.sleep(0.001)
@@ -366,9 +519,8 @@ def main():
                     logging.info("[YOLO] TRIGGER ✅ info=%s", info)
                     task1.interrupt_to_return()
 
-                # task1 tick (30Hz stepper)
-                now = time.perf_counter()
-                task1.step(now)
+                # task1 tick
+                task1.step(time.perf_counter())
 
                 if show:
                     cv2.imshow(yolo_win, resize_for_preview(vis, yolo_preview_scale))
@@ -376,13 +528,11 @@ def main():
                     if k in (ord("q"), 27):
                         stop_flag["stop"] = True
 
-                # return이 끝나면 Stage2로
                 if task1.is_return_done():
                     logging.info("[STAGE1] Task1 RETURN done -> Stage2(GRU wait)")
                     stage = "WAIT_GRU"
                     base_ctrl.enable()
                     gru.reset()
-                    # yolo window 닫고 싶으면 닫기
                     if show:
                         try:
                             cv2.destroyWindow(yolo_win)
@@ -390,7 +540,6 @@ def main():
                             pass
 
             elif stage == "WAIT_GRU":
-                # 기본자세 유지
                 base_ctrl.tick()
 
                 trig, vis, info = gru.step(frame)
@@ -402,7 +551,6 @@ def main():
 
                 if trig:
                     logging.info("[GRU] TRIGGER ✅ info=%s", info)
-                    stage = "RUN_POLICY1"
                     break
 
             # loop sleep
@@ -415,7 +563,7 @@ def main():
             logging.info("[STOP] requested before policies.")
             return
 
-        # 이제 vision은 더 이상 필요 없음(요구사항 기준)
+        # vision 종료
         if show:
             try:
                 cv2.destroyWindow(gru_win)
@@ -425,21 +573,21 @@ def main():
         cap = None
 
         # =============================
-        # STAGE B: Policy1
+        # STAGE 3: Policy1 (task2)
         # =============================
-        p1 = cfg.get("policy1", {}) or {}
+        pol = cfg["policies"]
+        p1 = pol.get("policy1", {}) or {}
         repo1 = str(p1.get("repo_id", "")).strip()
         if not repo1:
-            raise ValueError("policy1.repo_id is empty in runtime.yaml")
-        dur1 = float(p1.get("duration_s", 10.0))
+            raise ValueError("policies.policy1.repo_id is empty in runtime.yaml")
 
-        logging.info("[STAGE3] run policy1 repo=%s duration=%.1fs", repo1, dur1)
+        logging.info("[STAGE3] run policy1 repo=%s duration=%.1fs", repo1, task2_duration)
         base_ctrl.disable()
         run_pretrained_policy_shared_robot(
             robot=robot,
             repo_id=repo1,
-            fps=int(p1.get("fps", 30)),
-            duration_s=dur1,
+            fps=policy_fps,
+            duration_s=task2_duration,
             task=p1.get("task", None),
             rename_map=p1.get("rename_map", None),
             dataset_repo_id=p1.get("dataset_repo_id", None),
@@ -449,14 +597,12 @@ def main():
             print_joints_every=int(p1.get("print_joints_every", 30)),
         )
 
-        # policy 끝나면 기본자세
         base_ctrl.enable()
         _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
 
         # wait
-        wait_s = float(cfg.get("timing", {}).get("wait_task2_to_task3_s", 30.0))
-        logging.info("[WAIT] %.1fs at base pose...", wait_s)
-        t_end = time.perf_counter() + wait_s
+        logging.info("[WAIT] %.1fs at base pose...", wait_23)
+        t_end = time.perf_counter() + wait_23
         while time.perf_counter() < t_end and not stop_flag["stop"]:
             loop_start = time.perf_counter()
             base_ctrl.tick()
@@ -470,21 +616,20 @@ def main():
             return
 
         # =============================
-        # STAGE C: Policy2
+        # STAGE 4: Policy2 (task3)
         # =============================
-        p2 = cfg.get("policy2", {}) or {}
+        p2 = pol.get("policy2", {}) or {}
         repo2 = str(p2.get("repo_id", "")).strip()
         if not repo2:
-            raise ValueError("policy2.repo_id is empty in runtime.yaml")
-        dur2 = float(p2.get("duration_s", 10.0))
+            raise ValueError("policies.policy2.repo_id is empty in runtime.yaml")
 
-        logging.info("[STAGE4] run policy2 repo=%s duration=%.1fs", repo2, dur2)
+        logging.info("[STAGE4] run policy2 repo=%s duration=%.1fs", repo2, task3_duration)
         base_ctrl.disable()
         run_pretrained_policy_shared_robot(
             robot=robot,
             repo_id=repo2,
-            fps=int(p2.get("fps", 30)),
-            duration_s=dur2,
+            fps=policy_fps,
+            duration_s=task3_duration,
             task=p2.get("task", None),
             rename_map=p2.get("rename_map", None),
             dataset_repo_id=p2.get("dataset_repo_id", None),
@@ -501,7 +646,6 @@ def main():
 
     except Exception as e:
         logging.exception("[FATAL] %s", e)
-        # fail-safe: base pose best-effort
         if robot is not None and base_ctrl is not None:
             _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
         raise
