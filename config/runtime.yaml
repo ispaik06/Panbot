@@ -97,9 +97,9 @@ task:
 
   # Policy
   policy_fps: 30
-  task2_duration_s: 10.0
-  task3_duration_s: 10.0
-  wait_task2_to_task3_s: 30.0
+  task2_duration_s: 5.0
+  task3_duration_s: 200.0
+  wait_task2_to_task3_s: 10.0
 
 poses:
   base_pose:
