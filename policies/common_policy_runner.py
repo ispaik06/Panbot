@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import logging
+import threading
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -58,6 +59,7 @@ def run_pretrained_policy_shared_robot(
     use_amp: bool = True,
     print_joints: bool = False,
     print_joints_every: int = 30,
+    stop_event: Optional[threading.Event] = None,   # ✅ 추가
 ) -> None:
     """
     ✅ B정석: robot.connect()를 여기서 하지 않습니다.
@@ -103,6 +105,9 @@ def run_pretrained_policy_shared_robot(
 
     try:
         while True:
+            if stop_event is not None and stop_event.is_set():
+                logging.info("[POLICY] stop_event set -> break")
+                break
             loop_start = time.perf_counter()
 
             obs = robot.get_observation()

@@ -1,0 +1,77 @@
+2026-02-10 16:37:26,735 | INFO | ==================================================
+2026-02-10 16:37:26,735 | INFO | [main_runtime] logging started
+2026-02-10 16:37:26,735 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_163726.log
+2026-02-10 16:37:26,736 | INFO | ==================================================
+2026-02-10 16:37:26,736 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 16:37:26,737 | INFO | [ROBOT] connect...
+2026-02-10 16:37:28,189 | INFO | OpenCVCamera(2) connected.
+2026-02-10 16:37:29,534 | INFO | OpenCVCamera(6) connected.
+2026-02-10 16:37:30,887 | INFO | OpenCVCamera(4) connected.
+2026-02-10 16:37:32,137 | INFO | OpenCVCamera(0) connected.
+2026-02-10 16:37:32,180 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 16:37:32,180 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 16:37:32,181 | INFO | [BASE_POSE] enabled
+2026-02-10 16:37:32,181 | INFO | [VISION] open camera...
+2026-02-10 16:37:32,508 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 16:37:32,508 | INFO | [BASE_POSE] disabled
+2026-02-10 16:37:32,519 | INFO | [TASK1] INITIAL pose 1/5 -> RAMP
+2026-02-10 16:37:32,519 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 16:37:35,567 | INFO | [TASK1] INITIAL pose 1/5 -> HOLD
+2026-02-10 16:37:36,584 | INFO | [TASK1] INITIAL pose 2/5 -> RAMP
+2026-02-10 16:37:39,587 | INFO | [TASK1] INITIAL pose 2/5 -> HOLD
+2026-02-10 16:37:40,639 | INFO | [TASK1] INITIAL pose 3/5 -> RAMP
+2026-02-10 16:37:43,659 | INFO | [TASK1] INITIAL pose 3/5 -> HOLD
+2026-02-10 16:37:44,694 | INFO | [TASK1] INITIAL pose 4/5 -> RAMP
+2026-02-10 16:37:47,707 | INFO | [TASK1] INITIAL pose 4/5 -> HOLD
+2026-02-10 16:37:48,750 | INFO | [TASK1] INITIAL pose 5/5 -> RAMP
+2026-02-10 16:37:51,769 | INFO | [TASK1] INITIAL pose 5/5 -> HOLD
+2026-02-10 16:37:52,812 | INFO | [TASK1] INITIAL sequence DONE
+2026-02-10 16:38:08,031 | INFO | [YOLO] TRIGGER ✅ info={'ratio': 0.18567982895000157, 'mask_area': 1057740.0, 'hit_count': 30, 'hold_frames': 30, 'triggered': True}
+2026-02-10 16:38:08,031 | INFO | [TASK1] interrupt_to_return requested
+2026-02-10 16:38:08,032 | INFO | [TASK1] RETURN pose 1/5 -> RAMP
+2026-02-10 16:38:11,045 | INFO | [TASK1] RETURN pose 1/5 -> HOLD
+2026-02-10 16:38:12,053 | INFO | [TASK1] RETURN pose 2/5 -> RAMP
+2026-02-10 16:38:15,131 | INFO | [TASK1] RETURN pose 2/5 -> HOLD
+2026-02-10 16:38:16,136 | INFO | [TASK1] RETURN pose 3/5 -> RAMP
+2026-02-10 16:38:19,204 | INFO | [TASK1] RETURN pose 3/5 -> HOLD
+2026-02-10 16:38:20,250 | INFO | [TASK1] RETURN pose 4/5 -> RAMP
+2026-02-10 16:38:23,322 | INFO | [TASK1] RETURN pose 4/5 -> HOLD
+2026-02-10 16:38:24,385 | INFO | [TASK1] RETURN pose 5/5 -> RAMP
+2026-02-10 16:38:27,447 | INFO | [TASK1] RETURN pose 5/5 -> HOLD
+2026-02-10 16:38:28,503 | INFO | [TASK1] RETURN sequence DONE
+2026-02-10 16:38:28,539 | INFO | [STAGE1] Task1 RETURN done -> Stage2(GRU wait)
+2026-02-10 16:38:28,540 | INFO | [BASE_POSE] enabled
+2026-02-10 16:41:24,448 | INFO | [GRU] TRIGGER ✅ info={'pred_label': 'ready', 'shown_label': 'ready', 'conf': 0.5806277990341187, 'ready_streak': 3, 'ready_hold': 3, 'buffer': 91, 'buffer_need': 91, 'triggered': True}
+2026-02-10 16:41:24,836 | INFO | [STAGE3] run policy1 repo=ispaik06/act_panbot_task2_3 duration=5.0s
+2026-02-10 16:41:24,836 | INFO | [BASE_POSE] disabled
+2026-02-10 16:41:24,836 | INFO | [POLICY] load pretrained repo_id=ispaik06/act_panbot_task2_3
+2026-02-10 16:41:26,411 | INFO | [POLICY] start fps=30 duration_s=5.0 use_amp=True task=None
+2026-02-10 16:41:31,444 | INFO | [POLICY] done (steps=147)
+2026-02-10 16:41:31,444 | INFO | [BASE_POSE] enabled
+2026-02-10 16:41:31,444 | INFO | [BASE_POSE] enabled
+2026-02-10 16:41:32,452 | INFO | [SAFE] best-effort base pose sent
+2026-02-10 16:41:32,453 | INFO | [WAIT] 10.0s at base pose...
+2026-02-10 16:41:42,479 | INFO | [STAGE4] run policy2 repo=ispaik06/act_panbot_task3_3 duration=200.0s
+2026-02-10 16:41:42,479 | INFO | [BASE_POSE] disabled
+2026-02-10 16:41:42,479 | INFO | [POLICY] load pretrained repo_id=ispaik06/act_panbot_task3_3
+2026-02-10 16:41:43,937 | INFO | [POLICY] start fps=30 duration_s=200.0 use_amp=True task=None
+2026-02-10 16:41:59,542 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:42:05,540 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:42:05,757 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:42:05,903 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:43:56,943 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:43:58,276 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:43:58,452 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:44:10,203 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:44:10,390 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:44:10,584 | INFO | [SIGNAL] received signum=2 -> stopping...
+2026-02-10 16:45:03,951 | INFO | [POLICY] done (steps=5867)
+2026-02-10 16:45:03,951 | INFO | [BASE_POSE] enabled
+2026-02-10 16:45:03,952 | INFO | [BASE_POSE] enabled
+2026-02-10 16:45:04,959 | INFO | [SAFE] best-effort base pose sent
+2026-02-10 16:45:04,960 | INFO | [DONE] main_runtime finished OK ✅
+2026-02-10 16:45:05,103 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 16:45:05,231 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 16:45:05,383 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 16:45:05,469 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 16:45:05,470 | INFO | my_awesome_follower_arm SO101Follower disconnected.

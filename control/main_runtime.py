@@ -7,7 +7,13 @@ import os
 import signal
 import sys
 import time
-from dataclasses import dataclass
+import threading
+import termios
+import tty
+import select
+import termios
+
+from dataclasses import dataclass, is_dataclass, fields
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -127,6 +133,41 @@ def _setup_logging(log_dir: Path, level: str = "INFO") -> None:
     logging.info("[main_runtime] logging started")
     logging.info("log_file=%s", log_path)
     logging.info("==================================================")
+
+
+def _start_esc_listener(stop_flag: dict) -> Optional[threading.Thread]:
+    """
+    터미널(STDIN)에서 ESC(27) 입력을 감지해서 stop_flag["stop"]=True로 만듭니다.
+    (cv2 창이 없어도 policy 중에 동작)
+    """
+    if not sys.stdin.isatty():
+        logging.warning("[KEY] stdin is not a TTY -> ESC listener disabled")
+        return None
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+
+    def _worker():
+        try:
+            tty.setcbreak(fd)  # 한 글자씩 즉시 읽기
+            while not stop_flag["stop"]:
+                r, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if not r:
+                    continue
+                ch = sys.stdin.read(1)
+                if ch and ord(ch) == 27:  # ESC
+                    stop_flag["stop"] = True
+                    logging.info("[KEY] ESC pressed -> stopping...")
+                    break
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            except Exception:
+                pass
+
+    th = threading.Thread(target=_worker, daemon=True)
+    th.start()
+    return th
 
 
 # -----------------------------
@@ -300,20 +341,82 @@ def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     return cfg
 
 
+def _import_opencv_camera_config_cls():
+    """
+    LeRobot 버전에 따라 OpenCV 카메라 config 클래스 위치가 다를 수 있어서
+    여러 후보를 순서대로 시도합니다.
+    """
+    candidates = [
+        ("lerobot.cameras.opencv_camera", "OpenCVCameraConfig"),
+        ("lerobot.cameras.opencv", "OpenCVCameraConfig"),
+        ("lerobot.cameras.opencv.config", "OpenCVCameraConfig"),
+    ]
+    last_err = None
+    for mod, name in candidates:
+        try:
+            m = __import__(mod, fromlist=[name])
+            return getattr(m, name)
+        except Exception as e:
+            last_err = e
+    raise ImportError(
+        "Cannot import OpenCVCameraConfig from lerobot. "
+        "Your lerobot version may use a different module path."
+    ) from last_err
+
+
+def _make_dataclass_instance(cls, raw: dict):
+    """raw dict에서 dataclass field에 해당하는 키만 골라서 생성"""
+    if not is_dataclass(cls):
+        return cls(**raw)
+    allowed = {f.name for f in fields(cls)}
+    kwargs = {k: v for k, v in raw.items() if k in allowed}
+    return cls(**kwargs)
+
+
+def _build_robot_camera_configs(cameras_raw: dict) -> dict:
+    """
+    runtime.yaml의 robot.cameras (dict)를
+    LeRobot이 기대하는 CameraConfig 객체 dict로 변환.
+    """
+    if not cameras_raw:
+        return {}
+
+    opencv_cls = _import_opencv_camera_config_cls()
+
+    cameras_out = {}
+    for name, cam in cameras_raw.items():
+        if cam is None:
+            continue
+        if not isinstance(cam, dict):
+            # 이미 객체면 그대로
+            cameras_out[name] = cam
+            continue
+
+        cam_type = str(cam.get("type", "opencv")).lower()
+        if cam_type != "opencv":
+            raise ValueError(f"Unsupported camera type '{cam_type}' for robot.cameras.{name}")
+
+        # YAML 키 이름 그대로 유지하되, dataclass field만 골라서 넣음
+        cam_cfg = _make_dataclass_instance(opencv_cls, cam)
+        cameras_out[name] = cam_cfg
+
+    return cameras_out
+
+
+
 def _build_so101_config(robot_cfg: Dict[str, Any]) -> SO101FollowerConfig:
-    """
-    ✅ policy에서 쓸 카메라들은 SO101FollowerConfig.cameras에 넣어야 함
-    (vision 카메라와는 별개)
-    """
     port = str(robot_cfg.get("port", "/dev/ttyACM0"))
     rid = str(robot_cfg.get("id", "my_awesome_follower_arm"))
     calib_dir = str(robot_cfg.get("calibration_dir", "")).strip() or None
-    cameras = robot_cfg.get("cameras", {}) or {}
+
+    cameras_raw = robot_cfg.get("cameras", {}) or {}
+    cameras = _build_robot_camera_configs(cameras_raw)  # ✅ dict -> CameraConfig 객체들
 
     cfg = SO101FollowerConfig(port=port, id=rid, cameras=cameras)
     if calib_dir:
         cfg.calibration_dir = calib_dir
     return cfg
+
 
 
 def _best_effort_safe_pose(robot, base_pose_ctrl: BasePoseController, seconds: float = 1.0) -> None:
@@ -400,6 +503,8 @@ def main():
     ret_seq = poses.get("task1_return_sequence", None)
 
     stop_flag = {"stop": False}
+    _esc_thread = _start_esc_listener(stop_flag)
+
 
     def _sig_handler(signum, frame):
         stop_flag["stop"] = True
@@ -525,8 +630,18 @@ def main():
                 if show:
                     cv2.imshow(yolo_win, resize_for_preview(vis, yolo_preview_scale))
                     k = cv2.waitKey(1) & 0xFF
-                    if k in (ord("q"), 27):
+                    # ESC: 전체 종료 + base pose 복귀 (나중에 처리)
+                    if k == 27:
                         stop_flag["stop"] = True
+                        
+                    # q: preview만 끄기
+                    elif k == ord("q"):
+                        show = False
+                        try:
+                            cv2.destroyWindow(yolo_win)
+                        except Exception:
+                            pass
+
 
                 if task1.is_return_done():
                     logging.info("[STAGE1] Task1 RETURN done -> Stage2(GRU wait)")
@@ -546,8 +661,19 @@ def main():
                 if show:
                     cv2.imshow(gru_win, resize_for_preview(vis, gru_preview_scale))
                     k = cv2.waitKey(1) & 0xFF
-                    if k in (ord("q"), 27):
+
+                    # ESC: 전체 종료 + base pose 복귀 (나중에 처리)
+                    if k == 27:
                         stop_flag["stop"] = True
+
+                    # q: preview만 끄기
+                    elif k == ord("q"):
+                        show = False
+                        try:
+                            cv2.destroyWindow(gru_win)
+                        except Exception:
+                            pass
+
 
                 if trig:
                     logging.info("[GRU] TRIGGER ✅ info=%s", info)
@@ -595,7 +721,14 @@ def main():
             use_amp=bool(p1.get("use_amp", True)),
             print_joints=bool(p1.get("print_joints", False)),
             print_joints_every=int(p1.get("print_joints_every", 30)),
+            stop_fn=lambda: stop_flag["stop"],
         )
+        
+        if stop_flag["stop"]:
+            logging.info("[STOP] requested during policy2 -> go base pose and exit")
+            base_ctrl.enable()
+            _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+            return
 
         base_ctrl.enable()
         _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
@@ -637,8 +770,16 @@ def main():
             use_amp=bool(p2.get("use_amp", True)),
             print_joints=bool(p2.get("print_joints", False)),
             print_joints_every=int(p2.get("print_joints_every", 30)),
+            stop_fn=lambda: stop_flag["stop"],
         )
 
+        if stop_flag["stop"]:
+            logging.info("[STOP] requested during policy1 -> go base pose and exit")
+            base_ctrl.enable()
+            _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+            return
+
+        
         base_ctrl.enable()
         _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
 

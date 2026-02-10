@@ -48,7 +48,7 @@ robot:
 
 vision:
   # ✅ YOLO/GRU가 공유해서 쓰는 "단일" 비전 카메라
-  cam_index: 10
+  cam_index: 8
   backend: "v4l2"
   mjpg: true
 
@@ -58,8 +58,8 @@ vision:
 
   # UI
   show: true
-  yolo_preview_scale: 0.55
-  gru_preview_scale: 0.30
+  yolo_preview_scale: 0.31
+  gru_preview_scale: 0.31
 
   # watchdog
   watchdog_s: 2.0
@@ -67,7 +67,7 @@ vision:
 yolo_trigger:
   conf: 0.25
   imgsz: 640
-  area_thr_ratio: 0.17
+  area_thr_ratio: 0.12
   hold_frames: 30
   use_warp: true
   warp_w: 0   # 0이면 corners 기반 자동
@@ -97,9 +97,9 @@ task:
 
   # Policy
   policy_fps: 30
-  task2_duration_s: 5.0
-  task3_duration_s: 200.0
-  wait_task2_to_task3_s: 10.0
+  task2_duration_s: 180.0
+  task3_duration_s: 180.0
+  wait_task2_to_task3_s: 30.0
 
 poses:
   base_pose:

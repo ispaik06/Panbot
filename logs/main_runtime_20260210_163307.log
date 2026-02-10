@@ -1,0 +1,41 @@
+2026-02-10 16:33:08,000 | INFO | ==================================================
+2026-02-10 16:33:08,000 | INFO | [main_runtime] logging started
+2026-02-10 16:33:08,000 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_163307.log
+2026-02-10 16:33:08,000 | INFO | ==================================================
+2026-02-10 16:33:08,000 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 16:33:08,002 | INFO | [ROBOT] connect...
+2026-02-10 16:33:09,435 | INFO | OpenCVCamera(2) connected.
+2026-02-10 16:33:10,787 | INFO | OpenCVCamera(6) connected.
+2026-02-10 16:33:12,146 | INFO | OpenCVCamera(4) connected.
+2026-02-10 16:33:13,494 | INFO | OpenCVCamera(0) connected.
+2026-02-10 16:33:13,542 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 16:33:13,543 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 16:33:13,543 | INFO | [BASE_POSE] enabled
+2026-02-10 16:33:13,543 | INFO | [VISION] open camera...
+2026-02-10 16:33:13,886 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 16:33:13,886 | INFO | [BASE_POSE] disabled
+2026-02-10 16:33:13,894 | INFO | [TASK1] INITIAL pose 1/5 -> RAMP
+2026-02-10 16:33:13,894 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 16:33:16,901 | INFO | [TASK1] INITIAL pose 1/5 -> HOLD
+2026-02-10 16:33:17,924 | INFO | [TASK1] INITIAL pose 2/5 -> RAMP
+2026-02-10 16:33:18,189 | INFO | [YOLO] TRIGGER ✅ info={'ratio': 0.2721601381881761, 'mask_area': 1550382.0, 'hit_count': 30, 'hold_frames': 30, 'triggered': True}
+2026-02-10 16:33:18,190 | INFO | [TASK1] interrupt_to_return requested
+2026-02-10 16:33:18,191 | INFO | [TASK1] RETURN pose 1/5 -> RAMP
+2026-02-10 16:33:21,257 | INFO | [TASK1] RETURN pose 1/5 -> HOLD
+2026-02-10 16:33:22,332 | INFO | [TASK1] RETURN pose 2/5 -> RAMP
+2026-02-10 16:33:25,361 | INFO | [TASK1] RETURN pose 2/5 -> HOLD
+2026-02-10 16:33:26,377 | INFO | [TASK1] RETURN pose 3/5 -> RAMP
+2026-02-10 16:33:29,414 | INFO | [TASK1] RETURN pose 3/5 -> HOLD
+2026-02-10 16:33:30,470 | INFO | [TASK1] RETURN pose 4/5 -> RAMP
+2026-02-10 16:33:33,514 | INFO | [TASK1] RETURN pose 4/5 -> HOLD
+2026-02-10 16:33:34,572 | INFO | [TASK1] RETURN pose 5/5 -> RAMP
+2026-02-10 16:33:37,651 | INFO | [TASK1] RETURN pose 5/5 -> HOLD
+2026-02-10 16:33:38,704 | INFO | [TASK1] RETURN sequence DONE
+2026-02-10 16:33:38,721 | INFO | [STAGE1] Task1 RETURN done -> Stage2(GRU wait)
+2026-02-10 16:33:38,721 | INFO | [BASE_POSE] enabled
+2026-02-10 16:33:40,683 | INFO | [STOP] requested before policies.
+2026-02-10 16:33:41,264 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 16:33:41,357 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 16:33:41,487 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 16:33:41,576 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 16:33:41,576 | INFO | my_awesome_follower_arm SO101Follower disconnected.

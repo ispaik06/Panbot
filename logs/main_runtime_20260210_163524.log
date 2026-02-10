@@ -1,0 +1,29 @@
+2026-02-10 16:35:24,941 | INFO | ==================================================
+2026-02-10 16:35:24,941 | INFO | [main_runtime] logging started
+2026-02-10 16:35:24,941 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_163524.log
+2026-02-10 16:35:24,941 | INFO | ==================================================
+2026-02-10 16:35:24,941 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 16:35:24,943 | INFO | [ROBOT] connect...
+2026-02-10 16:35:26,373 | INFO | OpenCVCamera(2) connected.
+2026-02-10 16:35:27,730 | INFO | OpenCVCamera(6) connected.
+2026-02-10 16:35:29,081 | INFO | OpenCVCamera(4) connected.
+2026-02-10 16:35:30,429 | INFO | OpenCVCamera(0) connected.
+2026-02-10 16:35:30,473 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 16:35:30,473 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 16:35:30,473 | INFO | [BASE_POSE] enabled
+2026-02-10 16:35:30,473 | INFO | [VISION] open camera...
+2026-02-10 16:35:30,803 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 16:35:30,803 | INFO | [BASE_POSE] disabled
+2026-02-10 16:35:30,811 | INFO | [TASK1] INITIAL pose 1/5 -> RAMP
+2026-02-10 16:35:30,811 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 16:35:33,866 | INFO | [TASK1] INITIAL pose 1/5 -> HOLD
+2026-02-10 16:35:34,869 | INFO | [TASK1] INITIAL pose 2/5 -> RAMP
+2026-02-10 16:35:35,130 | INFO | [YOLO] TRIGGER ✅ info={'ratio': 0.2721524142555709, 'mask_area': 1550338.0, 'hit_count': 30, 'hold_frames': 30, 'triggered': True}
+2026-02-10 16:35:35,130 | INFO | [TASK1] interrupt_to_return requested
+2026-02-10 16:35:35,132 | INFO | [TASK1] RETURN pose 1/5 -> RAMP
+2026-02-10 16:35:37,560 | INFO | [STOP] requested before policies.
+2026-02-10 16:35:38,293 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 16:35:38,419 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 16:35:38,517 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 16:35:38,605 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 16:35:38,605 | INFO | my_awesome_follower_arm SO101Follower disconnected.

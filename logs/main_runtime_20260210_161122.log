@@ -1,0 +1,46 @@
+2026-02-10 16:11:22,175 | INFO | ==================================================
+2026-02-10 16:11:22,175 | INFO | [main_runtime] logging started
+2026-02-10 16:11:22,175 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_161122.log
+2026-02-10 16:11:22,175 | INFO | ==================================================
+2026-02-10 16:11:22,175 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 16:11:22,189 | INFO | [ROBOT] connect...
+2026-02-10 16:11:22,189 | ERROR | [FATAL] 
+Could not connect on port '/dev/ttyACM0'. Make sure you are using the correct port.
+Try running `lerobot-find-port`
+Traceback (most recent call last):
+  File "/home/user/anaconda3/envs/panbot/lib/python3.10/site-packages/serial/serialposix.py", line 322, in open
+    self.fd = os.open(self.portstr, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+PermissionError: [Errno 13] Permission denied: '/dev/ttyACM0'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/user/Panbot/src/lerobot/src/lerobot/motors/motors_bus.py", line 436, in _connect
+    if not self.port_handler.openPort():
+  File "/home/user/anaconda3/envs/panbot/lib/python3.10/site-packages/scservo_sdk/port_handler.py", line 25, in openPort
+    return self.setBaudRate(self.baudrate)
+  File "/home/user/anaconda3/envs/panbot/lib/python3.10/site-packages/scservo_sdk/port_handler.py", line 49, in setBaudRate
+    return self.setupPort(baud)
+  File "/home/user/anaconda3/envs/panbot/lib/python3.10/site-packages/scservo_sdk/port_handler.py", line 95, in setupPort
+    self.ser = serial.Serial(
+  File "/home/user/anaconda3/envs/panbot/lib/python3.10/site-packages/serial/serialutil.py", line 244, in __init__
+    self.open()
+  File "/home/user/anaconda3/envs/panbot/lib/python3.10/site-packages/serial/serialposix.py", line 325, in open
+    raise SerialException(msg.errno, "could not open port {}: {}".format(self._port, msg))
+serial.serialutil.SerialException: [Errno 13] could not open port /dev/ttyACM0: [Errno 13] Permission denied: '/dev/ttyACM0'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/user/Panbot/control/main_runtime.py", line 482, in main
+    robot.connect()
+  File "/home/user/Panbot/src/lerobot/src/lerobot/robots/so101_follower/so101_follower.py", line 93, in connect
+    self.bus.connect()
+  File "/home/user/Panbot/src/lerobot/src/lerobot/motors/motors_bus.py", line 430, in connect
+    self._connect(handshake)
+  File "/home/user/Panbot/src/lerobot/src/lerobot/motors/motors_bus.py", line 441, in _connect
+    raise ConnectionError(
+ConnectionError: 
+Could not connect on port '/dev/ttyACM0'. Make sure you are using the correct port.
+Try running `lerobot-find-port`
+
