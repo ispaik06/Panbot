@@ -235,6 +235,7 @@ def _normalize_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["task"].setdefault("hz", 30)
     cfg["task"].setdefault("task1_ramp_time_s", 3.0)
     cfg["task"].setdefault("task1_pose_hold_s", 1.0)
+    cfg["task"].setdefault("task1_return_to_base_ramp_time_s", 1.0)
     cfg["task"].setdefault("task1_initial_ramp_overrides", {})
     cfg["task"].setdefault("task1_return_ramp_overrides", {})
     cfg["task"].setdefault("base_pose_hold_interval_s", 0.25)
@@ -263,6 +264,8 @@ def _import_opencv_camera_config():
     몇 가지 후보를 best-effort로 시도합니다.
     """
     candidates = [
+        "lerobot.cameras.opencv.configuration_opencv:OpenCVCameraConfig",
+        "lerobot.cameras.opencv:OpenCVCameraConfig",
         "lerobot.cameras.opencv.config_opencv_camera:OpenCVCameraConfig",
         "lerobot.cameras.opencv_camera:OpenCVCameraConfig",
         "lerobot.cameras.configs:OpenCVCameraConfig",
@@ -477,6 +480,7 @@ def main():
 
     task1_ramp = float(tcfg["task1_ramp_time_s"])
     task1_hold = float(tcfg["task1_pose_hold_s"])
+    task1_return_to_base_ramp = float(tcfg["task1_return_to_base_ramp_time_s"])
     base_pose_hold_interval = float(tcfg["base_pose_hold_interval_s"])
 
     policy_fps = int(tcfg["policy_fps"])
@@ -648,6 +652,10 @@ def main():
                 if task1.is_return_done():
                     logging.info("[STAGE1] Task1 RETURN done -> Stage2(GRU wait)")
                     stage = "WAIT_GRU"
+                    base_ctrl.ramp_to_target(
+                        duration_s=task1_return_to_base_ramp,
+                        target_action=base_pose,
+                    )
                     base_ctrl.enable()
                     gru.reset()
                     if show:

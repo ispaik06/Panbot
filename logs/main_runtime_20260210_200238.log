@@ -1,0 +1,58 @@
+2026-02-10 20:02:38,483 | INFO | ==================================================
+2026-02-10 20:02:38,483 | INFO | [main_runtime] logging started
+2026-02-10 20:02:38,483 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_200238.log
+2026-02-10 20:02:38,483 | INFO | ==================================================
+2026-02-10 20:02:38,483 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 20:02:38,484 | INFO | [KEY] KeyWatcher started (ESC=stop, q=preview off)
+2026-02-10 20:02:38,485 | INFO | [ROBOT] connect...
+2026-02-10 20:02:39,915 | INFO | OpenCVCamera(2) connected.
+2026-02-10 20:02:41,267 | INFO | OpenCVCamera(6) connected.
+2026-02-10 20:02:42,621 | INFO | OpenCVCamera(4) connected.
+2026-02-10 20:02:43,973 | INFO | OpenCVCamera(0) connected.
+2026-02-10 20:02:44,016 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 20:02:44,019 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 20:02:44,019 | INFO | [BASE_POSE] enabled
+2026-02-10 20:02:44,019 | INFO | [VISION] open camera...
+2026-02-10 20:02:44,460 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 20:02:44,460 | INFO | [BASE_POSE] disabled
+2026-02-10 20:02:44,468 | INFO | [TASK1] INITIAL pose 1/14 -> RAMP
+2026-02-10 20:02:44,468 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 20:02:49,481 | INFO | [TASK1] INITIAL pose 1/14 -> HOLD
+2026-02-10 20:02:49,483 | INFO | [TASK1] INITIAL pose 2/14 -> RAMP
+2026-02-10 20:02:50,501 | INFO | [TASK1] INITIAL pose 2/14 -> HOLD
+2026-02-10 20:02:50,502 | INFO | [TASK1] INITIAL pose 3/14 -> RAMP
+2026-02-10 20:02:53,523 | INFO | [TASK1] INITIAL pose 3/14 -> HOLD
+2026-02-10 20:02:53,524 | INFO | [TASK1] INITIAL pose 4/14 -> RAMP
+2026-02-10 20:02:56,578 | INFO | [TASK1] INITIAL pose 4/14 -> HOLD
+2026-02-10 20:02:56,580 | INFO | [TASK1] INITIAL pose 5/14 -> RAMP
+2026-02-10 20:02:59,615 | INFO | [TASK1] INITIAL pose 5/14 -> HOLD
+2026-02-10 20:02:59,616 | INFO | [TASK1] INITIAL pose 6/14 -> RAMP
+2026-02-10 20:03:02,645 | INFO | [TASK1] INITIAL pose 6/14 -> HOLD
+2026-02-10 20:03:02,646 | INFO | [TASK1] INITIAL pose 7/14 -> RAMP
+2026-02-10 20:03:05,693 | INFO | [TASK1] INITIAL pose 7/14 -> HOLD
+2026-02-10 20:03:05,694 | INFO | [TASK1] INITIAL pose 8/14 -> RAMP
+2026-02-10 20:03:08,746 | INFO | [TASK1] INITIAL pose 8/14 -> HOLD
+2026-02-10 20:03:08,747 | INFO | [TASK1] INITIAL pose 9/14 -> RAMP
+2026-02-10 20:03:11,773 | INFO | [TASK1] INITIAL pose 9/14 -> HOLD
+2026-02-10 20:03:11,775 | INFO | [TASK1] INITIAL pose 10/14 -> RAMP
+2026-02-10 20:03:14,820 | INFO | [TASK1] INITIAL pose 10/14 -> HOLD
+2026-02-10 20:03:14,822 | INFO | [TASK1] INITIAL pose 11/14 -> RAMP
+2026-02-10 20:03:17,854 | INFO | [TASK1] INITIAL pose 11/14 -> HOLD
+2026-02-10 20:03:17,855 | INFO | [TASK1] INITIAL pose 12/14 -> RAMP
+2026-02-10 20:03:20,865 | INFO | [TASK1] INITIAL pose 12/14 -> HOLD
+2026-02-10 20:03:20,866 | INFO | [TASK1] INITIAL pose 13/14 -> RAMP
+2026-02-10 20:03:23,910 | INFO | [TASK1] INITIAL pose 13/14 -> HOLD
+2026-02-10 20:03:23,911 | INFO | [TASK1] INITIAL pose 14/14 -> RAMP
+2026-02-10 20:03:26,962 | INFO | [TASK1] INITIAL pose 14/14 -> HOLD
+2026-02-10 20:03:26,963 | INFO | [TASK1] INITIAL sequence DONE
+2026-02-10 20:03:41,727 | INFO | [STOP] requested during vision stage -> safe exit
+2026-02-10 20:03:41,728 | INFO | [BASE_POSE] enabled
+2026-02-10 20:03:44,369 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 20:03:44,370 | INFO | [BASE_POSE] enabled
+2026-02-10 20:03:45,176 | INFO | [SAFE] base pose hold sent
+2026-02-10 20:03:45,176 | INFO | [KEY] KeyWatcher stopped
+2026-02-10 20:03:45,750 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 20:03:45,839 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 20:03:45,967 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 20:03:46,063 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 20:03:46,063 | INFO | my_awesome_follower_arm SO101Follower disconnected.

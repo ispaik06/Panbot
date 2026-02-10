@@ -1,0 +1,38 @@
+2026-02-10 19:25:51,098 | INFO | ==================================================
+2026-02-10 19:25:51,098 | INFO | [main_runtime] logging started
+2026-02-10 19:25:51,098 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_192551.log
+2026-02-10 19:25:51,098 | INFO | ==================================================
+2026-02-10 19:25:51,098 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 19:25:51,099 | INFO | [KEY] KeyWatcher started (ESC=stop, q=preview off)
+2026-02-10 19:25:51,101 | INFO | [ROBOT] connect...
+2026-02-10 19:25:52,543 | INFO | OpenCVCamera(2) connected.
+2026-02-10 19:25:53,905 | INFO | OpenCVCamera(6) connected.
+2026-02-10 19:25:55,259 | INFO | OpenCVCamera(4) connected.
+2026-02-10 19:25:56,605 | INFO | OpenCVCamera(0) connected.
+2026-02-10 19:25:56,650 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 19:25:56,650 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:25:56,651 | INFO | [BASE_POSE] enabled
+2026-02-10 19:25:56,651 | INFO | [VISION] open camera...
+2026-02-10 19:25:57,088 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 19:25:57,088 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:25:57,088 | INFO | [BASE_POSE] enabled
+2026-02-10 19:25:57,101 | INFO | [BASE_POSE] ramp start: duration_s=5.000
+2026-02-10 19:25:57,101 | INFO | [BASE_POSE] disabled
+2026-02-10 19:25:57,154 | INFO | [TASK1] INITIAL pose 1/5 -> RAMP
+2026-02-10 19:25:57,154 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 19:26:00,198 | INFO | [TASK1] INITIAL pose 1/5 -> HOLD
+2026-02-10 19:26:01,248 | INFO | [TASK1] INITIAL pose 2/5 -> RAMP
+2026-02-10 19:26:02,304 | INFO | [TASK1] INITIAL pose 2/5 -> HOLD
+2026-02-10 19:26:03,337 | INFO | [TASK1] INITIAL pose 3/5 -> RAMP
+2026-02-10 19:26:04,056 | INFO | [STOP] requested during vision stage -> safe exit
+2026-02-10 19:26:04,056 | INFO | [BASE_POSE] enabled
+2026-02-10 19:26:06,616 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:26:06,616 | INFO | [BASE_POSE] enabled
+2026-02-10 19:26:06,617 | INFO | [BASE_POSE] ramp done -> hold target
+2026-02-10 19:26:07,424 | INFO | [SAFE] base pose hold sent
+2026-02-10 19:26:07,424 | INFO | [KEY] KeyWatcher stopped
+2026-02-10 19:26:08,051 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 19:26:08,149 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 19:26:08,279 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 19:26:08,366 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 19:26:08,370 | INFO | my_awesome_follower_arm SO101Follower disconnected.

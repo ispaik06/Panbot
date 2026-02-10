@@ -1,0 +1,6 @@
+2026-02-10 17:54:25,668 | INFO | ==================================================
+2026-02-10 17:54:25,668 | INFO | [main_runtime] logging started
+2026-02-10 17:54:25,668 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_175425.log
+2026-02-10 17:54:25,668 | INFO | ==================================================
+2026-02-10 17:54:25,668 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 17:54:25,669 | INFO | [KEY] KeyWatcher started (ESC=stop, q=preview off)

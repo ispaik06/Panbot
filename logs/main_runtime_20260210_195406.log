@@ -1,0 +1,33 @@
+2026-02-10 19:54:06,890 | INFO | ==================================================
+2026-02-10 19:54:06,890 | INFO | [main_runtime] logging started
+2026-02-10 19:54:06,890 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_195406.log
+2026-02-10 19:54:06,890 | INFO | ==================================================
+2026-02-10 19:54:06,890 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 19:54:06,891 | INFO | [KEY] KeyWatcher started (ESC=stop, q=preview off)
+2026-02-10 19:54:06,892 | INFO | [ROBOT] connect...
+2026-02-10 19:54:08,325 | INFO | OpenCVCamera(2) connected.
+2026-02-10 19:54:09,675 | INFO | OpenCVCamera(6) connected.
+2026-02-10 19:54:11,020 | INFO | OpenCVCamera(4) connected.
+2026-02-10 19:54:12,382 | INFO | OpenCVCamera(0) connected.
+2026-02-10 19:54:12,419 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 19:54:12,419 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:54:12,419 | INFO | [BASE_POSE] enabled
+2026-02-10 19:54:12,419 | INFO | [VISION] open camera...
+2026-02-10 19:54:12,875 | ERROR | [FATAL] initial_sequence must have 5 poses
+Traceback (most recent call last):
+  File "/home/user/Panbot/control/main_runtime.py", line 600, in main
+    task1 = Task1MotionStepper(robot, t1cfg, action_features=action_features)
+  File "/home/user/Panbot/tasks/task1_motion.py", line 163, in __init__
+    self._validate_sequences()
+  File "/home/user/Panbot/tasks/task1_motion.py", line 247, in _validate_sequences
+    raise ValueError(f"initial_sequence must have {self.cfg.initial_sequence_len} poses")
+ValueError: initial_sequence must have 5 poses
+2026-02-10 19:54:15,528 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:54:15,529 | INFO | [BASE_POSE] enabled
+2026-02-10 19:54:16,330 | INFO | [SAFE] base pose hold sent
+2026-02-10 19:54:16,330 | INFO | [KEY] KeyWatcher stopped
+2026-02-10 19:54:16,470 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 19:54:16,560 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 19:54:16,678 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 19:54:16,774 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 19:54:16,775 | INFO | my_awesome_follower_arm SO101Follower disconnected.

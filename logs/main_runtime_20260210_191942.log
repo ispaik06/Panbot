@@ -1,0 +1,34 @@
+2026-02-10 19:19:42,252 | INFO | ==================================================
+2026-02-10 19:19:42,252 | INFO | [main_runtime] logging started
+2026-02-10 19:19:42,252 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_191942.log
+2026-02-10 19:19:42,253 | INFO | ==================================================
+2026-02-10 19:19:42,253 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 19:19:42,253 | INFO | [KEY] KeyWatcher started (ESC=stop, q=preview off)
+2026-02-10 19:19:42,256 | INFO | [ROBOT] connect...
+2026-02-10 19:19:43,688 | INFO | OpenCVCamera(2) connected.
+2026-02-10 19:19:45,054 | INFO | OpenCVCamera(6) connected.
+2026-02-10 19:19:46,327 | INFO | OpenCVCamera(4) connected.
+2026-02-10 19:19:47,684 | INFO | OpenCVCamera(0) connected.
+2026-02-10 19:19:47,729 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 19:19:47,729 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:19:47,729 | INFO | [BASE_POSE] enabled
+2026-02-10 19:19:47,729 | INFO | [VISION] open camera...
+2026-02-10 19:19:48,159 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 19:19:48,162 | INFO | [BASE_POSE] disabled
+2026-02-10 19:19:48,170 | INFO | [TASK1] INITIAL pose 1/5 -> RAMP
+2026-02-10 19:19:48,170 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 19:19:51,186 | INFO | [TASK1] INITIAL pose 1/5 -> HOLD
+2026-02-10 19:19:52,234 | INFO | [TASK1] INITIAL pose 2/5 -> RAMP
+2026-02-10 19:19:55,279 | INFO | [TASK1] INITIAL pose 2/5 -> HOLD
+2026-02-10 19:19:56,326 | INFO | [TASK1] INITIAL pose 3/5 -> RAMP
+2026-02-10 19:19:57,604 | INFO | [STOP] requested during vision stage -> safe exit
+2026-02-10 19:19:57,605 | INFO | [BASE_POSE] enabled
+2026-02-10 19:20:00,213 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 19:20:00,213 | INFO | [BASE_POSE] enabled
+2026-02-10 19:20:01,022 | INFO | [SAFE] base pose hold sent
+2026-02-10 19:20:01,022 | INFO | [KEY] KeyWatcher stopped
+2026-02-10 19:20:01,549 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 19:20:01,655 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 19:20:01,763 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 19:20:01,866 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 19:20:01,867 | INFO | my_awesome_follower_arm SO101Follower disconnected.
