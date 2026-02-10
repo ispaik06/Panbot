@@ -235,6 +235,8 @@ def _normalize_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["task"].setdefault("hz", 30)
     cfg["task"].setdefault("task1_ramp_time_s", 3.0)
     cfg["task"].setdefault("task1_pose_hold_s", 1.0)
+    cfg["task"].setdefault("task1_initial_ramp_overrides", {})
+    cfg["task"].setdefault("task1_return_ramp_overrides", {})
     cfg["task"].setdefault("base_pose_hold_interval_s", 0.25)
     cfg["task"].setdefault("policy_fps", 30)
     cfg["task"].setdefault("task2_duration_s", 10.0)
@@ -563,10 +565,27 @@ def main():
         gru = GRUInfer(gru_cfg)
 
         # Task1 stepper
+        def _parse_ramp_overrides(raw):
+            if not isinstance(raw, dict):
+                return {}
+            parsed = {}
+            for k, v in raw.items():
+                try:
+                    idx = int(k)
+                    parsed[idx] = float(v)
+                except Exception:
+                    continue
+            return parsed
+
+        initial_ramp_overrides = _parse_ramp_overrides(tcfg.get("task1_initial_ramp_overrides", {}))
+        return_ramp_overrides = _parse_ramp_overrides(tcfg.get("task1_return_ramp_overrides", {}))
+
         t1cfg = Task1MotionConfig(
             fps=main_hz,
             ramp_time_s=task1_ramp,
             pose_hold_s=task1_hold,
+            initial_ramp_overrides=initial_ramp_overrides,
+            return_ramp_overrides=return_ramp_overrides,
         )
         # sequences override
         if isinstance(init_seq, list) and len(init_seq) > 0:

@@ -124,6 +124,10 @@ class Task1MotionConfig:
     initial_sequence: List[Dict[str, float]] = field(default_factory=lambda: list(DEFAULT_INITIAL_SEQUENCE))
     return_sequence: List[Dict[str, float]] = field(default_factory=lambda: list(DEFAULT_RETURN_SEQUENCE))
 
+    # per-pose ramp overrides (key: target pose index)
+    initial_ramp_overrides: Dict[int, float] = field(default_factory=dict)
+    return_ramp_overrides: Dict[int, float] = field(default_factory=dict)
+
     enforce_sequence_lengths: bool = True
     initial_sequence_len: int = 5
     return_sequence_len: int = 5
@@ -167,6 +171,7 @@ class Task1MotionStepper:
 
         self._ramp_start_t: float = 0.0
         self._hold_end_t: float = 0.0
+        self._ramp_time_s_current: float = 0.0
 
         self._start_action_vec: Optional[np.ndarray] = None
         self._target_action_vec: Optional[np.ndarray] = None
@@ -283,6 +288,7 @@ class Task1MotionStepper:
         # store
         self._target = target
         self._ramp_start_t = time.perf_counter()
+        self._ramp_time_s_current = self._get_ramp_time_s()
         self.phase = Phase.RAMP
 
         self._start_action_vec = self._action_dict_to_vec(start_action)
@@ -292,7 +298,7 @@ class Task1MotionStepper:
                      self.mode.name, self._pose_idx + 1, len(self._seq))
 
         # ramp_time_s가 0이면 즉시 HOLD로 전환
-        if float(self.cfg.ramp_time_s) <= 0:
+        if float(self._ramp_time_s_current) <= 0:
             self.robot.send_action(target)
             self._enter_pose_hold()
 
@@ -320,7 +326,7 @@ class Task1MotionStepper:
     def _step_ramp(self, now: float):
         assert self._start_action_vec is not None and self._target_action_vec is not None and self._target is not None
 
-        T = float(self.cfg.ramp_time_s)
+        T = float(self._ramp_time_s_current)
         if T <= 1e-6:
             # 방어
             self.robot.send_action(self._target)
@@ -334,6 +340,13 @@ class Task1MotionStepper:
 
         if alpha >= 1.0:
             self._enter_pose_hold()
+
+    def _get_ramp_time_s(self) -> float:
+        if self.mode == Mode.INITIAL:
+            return float(self.cfg.initial_ramp_overrides.get(self._pose_idx, self.cfg.ramp_time_s))
+        if self.mode == Mode.RETURN:
+            return float(self.cfg.return_ramp_overrides.get(self._pose_idx, self.cfg.ramp_time_s))
+        return float(self.cfg.ramp_time_s)
 
     def _step_hold(self, now: float):
         assert self._target is not None

@@ -91,6 +91,8 @@ task:
   # Task1 motion stepper
   task1_ramp_time_s: 3.0
   task1_pose_hold_s: 1.0
+  task1_initial_ramp_overrides:
+    1: 1.0
 
   # Base pose 유지
   base_pose_hold_interval_s: 0.25
