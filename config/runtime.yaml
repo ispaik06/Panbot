@@ -79,6 +79,10 @@ gru_trigger:
   stride: 6
   ema: 0.7
   ready_hold: 3
+  # almost_ready(conf=1.00) 상태를 오래 유지한 뒤 conf가 떨어질 때 Task3 트리거
+  almost_ready_high_conf: 1.00
+  almost_ready_high_hold_s: 10.0
+  almost_ready_drop_conf: 0.90
   amp: true
   use_warp: true
   warp_w: 0   # 0이면 corners 기반 자동

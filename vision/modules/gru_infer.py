@@ -113,6 +113,9 @@ class GRUInferConfig:
     ema: float = 0.7
     ready_hold: int = 3
     amp: bool = True
+    almost_ready_high_conf: float = 1.00
+    almost_ready_high_hold_s: float = 10.0
+    almost_ready_drop_conf: float = 0.90
 
 
 class GRUInfer:
@@ -139,6 +142,7 @@ class GRUInfer:
         self.model.eval()
 
         self.ready_id = self.label2id.get("ready", self.num_classes - 1)
+        self.almost_ready_id = self.label2id.get("almost_ready", None)
 
         # warp
         self.corners = None
@@ -162,6 +166,8 @@ class GRUInfer:
         self.ema_prob = None
         self.ready_streak = 0
         self.infer_count = 0
+        self.almost_ready_high_start_t = None
+        self.almost_ready_high_qualified = False
 
     def step(self, frame_bgr: np.ndarray) -> Tuple[bool, np.ndarray, Dict[str, Any]]:
         frame_proc = frame_bgr
@@ -174,6 +180,7 @@ class GRUInfer:
         shown_label = "warming_up"
         conf = 0.0
         triggered = False
+        almost_drop_triggered = False
 
         if len(self.buf) == self.need:
             indices = [self.need - 1 - self.cfg.stride * (self.cfg.seq_len - 1 - i) for i in range(self.cfg.seq_len)]
@@ -201,12 +208,21 @@ class GRUInfer:
             pred_label = self.id2label.get(pred_id, str(pred_id))
             conf = float(self.ema_prob[pred_id])
 
+            # 기존 ready 전환 로직 (요청으로 주석 보존)
+            # if pred_id == self.ready_id:
+            #     self.ready_streak += 1
+            # else:
+            #     self.ready_streak = 0
+            # triggered = self.ready_streak >= max(int(self.cfg.ready_hold), 1)
+
             if pred_id == self.ready_id:
                 self.ready_streak += 1
             else:
                 self.ready_streak = 0
+            ready_triggered = self.ready_streak >= max(int(self.cfg.ready_hold), 1)
 
-            triggered = self.ready_streak >= max(int(self.cfg.ready_hold), 1)
+            almost_drop_triggered = self._check_almost_ready_drop_trigger(pred_id, conf, time.time())
+            triggered = ready_triggered or almost_drop_triggered
 
             shown_id = pred_id
             if pred_id == self.ready_id and not triggered:
@@ -230,8 +246,40 @@ class GRUInfer:
             "conf": float(conf),
             "ready_streak": int(self.ready_streak),
             "ready_hold": int(self.cfg.ready_hold),
+            "almost_ready_drop_triggered": bool(almost_drop_triggered),
+            "almost_ready_high_qualified": bool(self.almost_ready_high_qualified),
             "buffer": int(len(self.buf)),
             "buffer_need": int(self.need),
             "triggered": bool(triggered),
         }
         return triggered, vis, info
+
+    def _check_almost_ready_drop_trigger(self, pred_id: int, conf: float, now_s: float) -> bool:
+        if self.almost_ready_id is None:
+            return False
+
+        high_conf = float(self.cfg.almost_ready_high_conf)
+        hold_s = float(self.cfg.almost_ready_high_hold_s)
+        drop_conf = float(self.cfg.almost_ready_drop_conf)
+        conf_2dp = round(float(conf), 2)
+
+        if pred_id != int(self.almost_ready_id):
+            self.almost_ready_high_start_t = None
+            self.almost_ready_high_qualified = False
+            return False
+
+        if conf_2dp >= high_conf:
+            if self.almost_ready_high_start_t is None:
+                self.almost_ready_high_start_t = now_s
+            if (now_s - float(self.almost_ready_high_start_t)) >= hold_s:
+                self.almost_ready_high_qualified = True
+            return False
+
+        if self.almost_ready_high_qualified and conf_2dp <= drop_conf:
+            self.almost_ready_high_start_t = None
+            self.almost_ready_high_qualified = False
+            return True
+
+        if not self.almost_ready_high_qualified:
+            self.almost_ready_high_start_t = None
+        return False

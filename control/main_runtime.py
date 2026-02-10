@@ -230,6 +230,9 @@ def _normalize_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["gru_trigger"].setdefault("use_warp", True)
     cfg["gru_trigger"].setdefault("warp_w", 0)
     cfg["gru_trigger"].setdefault("warp_h", 0)
+    cfg["gru_trigger"].setdefault("almost_ready_high_conf", 1.00)
+    cfg["gru_trigger"].setdefault("almost_ready_high_hold_s", 10.0)
+    cfg["gru_trigger"].setdefault("almost_ready_drop_conf", 0.90)
 
     # task
     cfg["task"].setdefault("hz", 30)
@@ -565,6 +568,9 @@ def main():
             ema=float(gcfg["ema"]),
             ready_hold=int(gcfg["ready_hold"]),
             amp=bool(gcfg["amp"]),
+            almost_ready_high_conf=float(gcfg.get("almost_ready_high_conf", 1.00)),
+            almost_ready_high_hold_s=float(gcfg.get("almost_ready_high_hold_s", 10.0)),
+            almost_ready_drop_conf=float(gcfg.get("almost_ready_drop_conf", 0.90)),
         )
         gru = GRUInfer(gru_cfg)
 
