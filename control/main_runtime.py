@@ -8,12 +8,10 @@ import signal
 import sys
 import time
 import threading
-import termios
-import tty
 import select
+import tty
 import termios
-
-from dataclasses import dataclass, is_dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -28,13 +26,13 @@ from Panbot.vision.modules.camera import open_camera, resize_for_preview
 from Panbot.vision.modules.yoloseg_infer import YOLOSegConfig, YOLOSegInfer
 from Panbot.vision.modules.gru_infer import GRUInferConfig, GRUInfer
 
-from Panbot.tasks.base_pose import BasePoseController, HoldConfig
+from Panbot.tasks.base_pose import BasePoseController, HoldConfig, normalize_action_keys
 from Panbot.tasks.task1_motion import Task1MotionConfig, Task1MotionStepper, DEFAULT_REST_ACTION
 from Panbot.policies.common_policy_runner import run_pretrained_policy_shared_robot
 
 
 # -----------------------------
-# Defaults (fallback if yaml missing)
+# Defaults
 # -----------------------------
 DEFAULT_BASE_POSE = dict(DEFAULT_REST_ACTION)
 
@@ -47,131 +45,69 @@ class RuntimePaths:
 
 
 # -----------------------------
-# Env override helpers
+# Key watcher: ESC = stop, q = preview off
 # -----------------------------
-def _env_get(key: str) -> Optional[str]:
-    v = os.environ.get(key, None)
-    if v is None:
-        return None
-    v = str(v).strip()
-    return v if v != "" else None
-
-
-def _env_override_str(key: str, current: Optional[str]) -> Optional[str]:
-    v = _env_get(key)
-    return v if v is not None else current
-
-
-def _env_override_int(key: str, current: int) -> int:
-    v = _env_get(key)
-    return int(v) if v is not None else int(current)
-
-
-def _env_override_float(key: str, current: float) -> float:
-    v = _env_get(key)
-    return float(v) if v is not None else float(current)
-
-
-def _env_override_bool(key: str, current: bool) -> bool:
+class KeyWatcher:
     """
-    허용: 1/0, true/false, yes/no, on/off
+    터미널 stdin에서 키를 비동기로 읽어서 이벤트를 세팅합니다.
+    - ESC 단독 입력이면 stop_event.set()
+    - q 입력이면 preview_off_event.set()  (프리뷰만 끄기)
     """
-    v = _env_get(key)
-    if v is None:
-        return bool(current)
-    s = v.lower()
-    if s in ("1", "true", "yes", "y", "on"):
-        return True
-    if s in ("0", "false", "no", "n", "off"):
-        return False
-    # 숫자로도 처리
-    try:
-        return bool(int(s))
-    except Exception:
-        raise ValueError(f"Invalid bool env: {key}={v}")
+    def __init__(self, stop_event: threading.Event, preview_off_event: threading.Event):
+        self.stop_event = stop_event
+        self.preview_off_event = preview_off_event
+        self._running = False
+        self._t: Optional[threading.Thread] = None
+        self._fd = sys.stdin.fileno()
+        self._old = None
 
+    def start(self) -> None:
+        if not sys.stdin.isatty():
+            logging.warning("[KEY] stdin is not a TTY; KeyWatcher disabled.")
+            return
+        self._running = True
+        self._old = termios.tcgetattr(self._fd)
+        tty.setcbreak(self._fd)  # 한 글자씩 바로 읽기
+        self._t = threading.Thread(target=self._loop, daemon=True)
+        self._t.start()
+        logging.info("[KEY] KeyWatcher started (ESC=stop, q=preview off)")
 
-# -----------------------------
-# Logging
-# -----------------------------
-def _setup_logging(log_dir: Path, level: str = "INFO") -> None:
-    """
-    - 터미널 + 파일 동시 출력
-    - 중복 핸들러 방지
-    """
-    init_logging()
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    log_path = log_dir / f"main_runtime_{ts}.log"
-
-    root = logging.getLogger()
-
-    # 레벨
-    lvl = getattr(logging, str(level).upper(), logging.INFO)
-    root.setLevel(lvl)
-
-    # 기존 핸들러 정리(중복 방지): Stream/File만 제거
-    for h in list(root.handlers):
-        if isinstance(h, (logging.StreamHandler, logging.FileHandler)):
-            root.removeHandler(h)
-
-    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-
-    file_handler = logging.FileHandler(str(log_path), mode="a", encoding="utf-8")
-    file_handler.setLevel(lvl)
-    file_handler.setFormatter(fmt)
-
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setLevel(lvl)
-    stream_handler.setFormatter(fmt)
-
-    root.addHandler(file_handler)
-    root.addHandler(stream_handler)
-
-    logging.info("==================================================")
-    logging.info("[main_runtime] logging started")
-    logging.info("log_file=%s", log_path)
-    logging.info("==================================================")
-
-
-def _start_esc_listener(stop_flag: dict) -> Optional[threading.Thread]:
-    """
-    터미널(STDIN)에서 ESC(27) 입력을 감지해서 stop_flag["stop"]=True로 만듭니다.
-    (cv2 창이 없어도 policy 중에 동작)
-    """
-    if not sys.stdin.isatty():
-        logging.warning("[KEY] stdin is not a TTY -> ESC listener disabled")
-        return None
-
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-
-    def _worker():
+    def stop(self) -> None:
+        self._running = False
         try:
-            tty.setcbreak(fd)  # 한 글자씩 즉시 읽기
-            while not stop_flag["stop"]:
-                r, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if not r:
-                    continue
-                ch = sys.stdin.read(1)
-                if ch and ord(ch) == 27:  # ESC
-                    stop_flag["stop"] = True
-                    logging.info("[KEY] ESC pressed -> stopping...")
-                    break
-        finally:
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-            except Exception:
-                pass
+            if self._old is not None:
+                termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old)
+        except Exception:
+            pass
+        logging.info("[KEY] KeyWatcher stopped")
 
-    th = threading.Thread(target=_worker, daemon=True)
-    th.start()
-    return th
+    def _read_byte(self, timeout_s: float) -> Optional[bytes]:
+        r, _, _ = select.select([sys.stdin], [], [], timeout_s)
+        if r:
+            return os.read(self._fd, 1)
+        return None
+
+    def _loop(self) -> None:
+        while self._running and (not self.stop_event.is_set()):
+            b = self._read_byte(0.05)
+            if not b:
+                continue
+
+            # q → preview off
+            if b in (b"q", b"Q"):
+                self.preview_off_event.set()
+                continue
+
+            # ESC(0x1b) → stop (화살표키 시퀀스는 무시)
+            if b == b"\x1b":
+                b2 = self._read_byte(0.02)
+                if b2 is None:
+                    self.stop_event.set()
+                # ESC 시퀀스(예: 방향키)면 무시
 
 
 # -----------------------------
-# YAML
+# Utilities
 # -----------------------------
 def _load_yaml(path: Path) -> Dict[str, Any]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -185,32 +121,57 @@ def _require_file(p: Path, name: str) -> None:
         raise FileNotFoundError(f"missing {name}: {p}")
 
 
-def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+def _setup_logging(log_dir: Path, level: str = "INFO") -> None:
     """
-    ✅ runtime.yaml 구조에 맞게 섹션 보장 + env override 적용
+    - 터미널 + 파일 동시 출력
+    - 중복 핸들러 방지
+    """
+    init_logging()
+    log_dir.mkdir(parents=True, exist_ok=True)
 
-    Env override (필요한 것만):
-      - PANBOT_ROBOT_PORT
-      - PANBOT_ROBOT_ID
-      - PANBOT_ROBOT_CALIB_DIR
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"main_runtime_{ts}.log"
 
-      - PANBOT_VISION_CAM
-      - PANBOT_VISION_BACKEND
-      - PANBOT_VISION_MJPG
-      - PANBOT_VISION_W / H / FPS
-      - PANBOT_SHOW
-      - PANBOT_YOLO_PREVIEW
-      - PANBOT_GRU_PREVIEW
-      - PANBOT_VISION_WATCHDOG
+    root = logging.getLogger()
+    lvl = getattr(logging, str(level).upper(), logging.INFO)
+    root.setLevel(lvl)
 
-      - PANBOT_TASK_HZ
-      - PANBOT_TASK1_RAMP
-      - PANBOT_TASK1_HOLD
-      - PANBOT_BASE_HOLD
-      - PANBOT_POLICY_FPS
-      - PANBOT_TASK2_DURATION
-      - PANBOT_TASK3_DURATION
-      - PANBOT_WAIT_23
+    # 중복 방지: 기존 Stream/File 제거
+    for h in list(root.handlers):
+        if isinstance(h, (logging.StreamHandler, logging.FileHandler)):
+            root.removeHandler(h)
+
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    fh = logging.FileHandler(str(log_path), mode="a", encoding="utf-8")
+    fh.setLevel(lvl)
+    fh.setFormatter(fmt)
+
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(lvl)
+    sh.setFormatter(fmt)
+
+    root.addHandler(fh)
+    root.addHandler(sh)
+
+    logging.info("==================================================")
+    logging.info("[main_runtime] logging started")
+    logging.info("log_file=%s", log_path)
+    logging.info("==================================================")
+
+
+def _as_path(p: str) -> Path:
+    return Path(p).expanduser().resolve()
+
+
+def _dict_get(d: Dict[str, Any], key: str, default: Any) -> Any:
+    v = d.get(key, default)
+    return default if v is None else v
+
+
+def _normalize_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    runtime.yaml 구조 보장 + 기본값 채우기
     """
     cfg.setdefault("paths", {})
     cfg.setdefault("log", {})
@@ -222,24 +183,23 @@ def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg.setdefault("poses", {})
     cfg.setdefault("policies", {})
 
-    # ---- log
+    # log
     cfg["log"].setdefault("dir", "Panbot/logs")
     cfg["log"].setdefault("level", "INFO")
 
-    # ---- robot
+    # paths
+    cfg["paths"].setdefault("corners", "Panbot/vision/calibration/corners.json")
+    cfg["paths"].setdefault("yolo_model", "")
+    cfg["paths"].setdefault("gru_ckpt", "")
+
+    # robot
     cfg["robot"].setdefault("type", "so101_follower")
     cfg["robot"].setdefault("port", "/dev/ttyACM0")
     cfg["robot"].setdefault("id", "my_awesome_follower_arm")
     cfg["robot"].setdefault("calibration_dir", "")
     cfg["robot"].setdefault("cameras", {})
 
-    cfg["robot"]["port"] = _env_override_str("PANBOT_ROBOT_PORT", str(cfg["robot"]["port"]))
-    cfg["robot"]["id"] = _env_override_str("PANBOT_ROBOT_ID", str(cfg["robot"]["id"]))
-    cfg["robot"]["calibration_dir"] = _env_override_str(
-        "PANBOT_ROBOT_CALIB_DIR", str(cfg["robot"].get("calibration_dir", ""))
-    )
-
-    # ---- vision
+    # vision
     cfg["vision"].setdefault("cam_index", 0)
     cfg["vision"].setdefault("backend", "v4l2")
     cfg["vision"].setdefault("mjpg", True)
@@ -251,24 +211,7 @@ def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["vision"].setdefault("gru_preview_scale", 0.30)
     cfg["vision"].setdefault("watchdog_s", 2.0)
 
-    cfg["vision"]["cam_index"] = _env_override_int("PANBOT_VISION_CAM", int(cfg["vision"]["cam_index"]))
-    cfg["vision"]["backend"] = _env_override_str("PANBOT_VISION_BACKEND", str(cfg["vision"]["backend"]))
-    cfg["vision"]["mjpg"] = _env_override_bool("PANBOT_VISION_MJPG", bool(cfg["vision"]["mjpg"]))
-
-    cfg["vision"]["width"] = _env_override_int("PANBOT_VISION_W", int(cfg["vision"]["width"]))
-    cfg["vision"]["height"] = _env_override_int("PANBOT_VISION_H", int(cfg["vision"]["height"]))
-    cfg["vision"]["fps"] = _env_override_int("PANBOT_VISION_FPS", int(cfg["vision"]["fps"]))
-
-    cfg["vision"]["show"] = _env_override_bool("PANBOT_SHOW", bool(cfg["vision"]["show"]))
-    cfg["vision"]["yolo_preview_scale"] = _env_override_float(
-        "PANBOT_YOLO_PREVIEW", float(cfg["vision"]["yolo_preview_scale"])
-    )
-    cfg["vision"]["gru_preview_scale"] = _env_override_float(
-        "PANBOT_GRU_PREVIEW", float(cfg["vision"]["gru_preview_scale"])
-    )
-    cfg["vision"]["watchdog_s"] = _env_override_float("PANBOT_VISION_WATCHDOG", float(cfg["vision"]["watchdog_s"]))
-
-    # ---- yolo_trigger
+    # yolo_trigger
     cfg["yolo_trigger"].setdefault("conf", 0.25)
     cfg["yolo_trigger"].setdefault("imgsz", 640)
     cfg["yolo_trigger"].setdefault("area_thr_ratio", 0.17)
@@ -277,7 +220,7 @@ def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["yolo_trigger"].setdefault("warp_w", 0)
     cfg["yolo_trigger"].setdefault("warp_h", 0)
 
-    # ---- gru_trigger
+    # gru_trigger
     cfg["gru_trigger"].setdefault("image_size", 224)
     cfg["gru_trigger"].setdefault("seq_len", 16)
     cfg["gru_trigger"].setdefault("stride", 6)
@@ -288,7 +231,7 @@ def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["gru_trigger"].setdefault("warp_w", 0)
     cfg["gru_trigger"].setdefault("warp_h", 0)
 
-    # ---- task
+    # task
     cfg["task"].setdefault("hz", 30)
     cfg["task"].setdefault("task1_ramp_time_s", 3.0)
     cfg["task"].setdefault("task1_pose_hold_s", 1.0)
@@ -298,110 +241,73 @@ def _normalize_runtime_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg["task"].setdefault("task3_duration_s", 10.0)
     cfg["task"].setdefault("wait_task2_to_task3_s", 30.0)
 
-    cfg["task"]["hz"] = _env_override_int("PANBOT_TASK_HZ", int(cfg["task"]["hz"]))
-    cfg["task"]["task1_ramp_time_s"] = _env_override_float(
-        "PANBOT_TASK1_RAMP", float(cfg["task"]["task1_ramp_time_s"])
-    )
-    cfg["task"]["task1_pose_hold_s"] = _env_override_float(
-        "PANBOT_TASK1_HOLD", float(cfg["task"]["task1_pose_hold_s"])
-    )
-    cfg["task"]["base_pose_hold_interval_s"] = _env_override_float(
-        "PANBOT_BASE_HOLD", float(cfg["task"]["base_pose_hold_interval_s"])
-    )
-    cfg["task"]["policy_fps"] = _env_override_int("PANBOT_POLICY_FPS", int(cfg["task"]["policy_fps"]))
-    cfg["task"]["task2_duration_s"] = _env_override_float(
-        "PANBOT_TASK2_DURATION", float(cfg["task"]["task2_duration_s"])
-    )
-    cfg["task"]["task3_duration_s"] = _env_override_float(
-        "PANBOT_TASK3_DURATION", float(cfg["task"]["task3_duration_s"])
-    )
-    cfg["task"]["wait_task2_to_task3_s"] = _env_override_float(
-        "PANBOT_WAIT_23", float(cfg["task"]["wait_task2_to_task3_s"])
-    )
-
-    # ---- poses
+    # poses
     cfg["poses"].setdefault("base_pose", None)
     cfg["poses"].setdefault("task1_initial_sequence", None)
     cfg["poses"].setdefault("task1_return_sequence", None)
 
-    # ---- policies
+    # policies
     cfg["policies"].setdefault("policy1", {})
     cfg["policies"].setdefault("policy2", {})
     cfg["policies"]["policy1"].setdefault("repo_id", "")
     cfg["policies"]["policy2"].setdefault("repo_id", "")
 
-    # 선택 env override (repo_id)
-    cfg["policies"]["policy1"]["repo_id"] = _env_override_str(
-        "PANBOT_POLICY1_REPO", str(cfg["policies"]["policy1"].get("repo_id", ""))
-    )
-    cfg["policies"]["policy2"]["repo_id"] = _env_override_str(
-        "PANBOT_POLICY2_REPO", str(cfg["policies"]["policy2"].get("repo_id", ""))
-    )
-
     return cfg
 
 
-def _import_opencv_camera_config_cls():
+def _import_opencv_camera_config():
     """
-    LeRobot 버전에 따라 OpenCV 카메라 config 클래스 위치가 다를 수 있어서
-    여러 후보를 순서대로 시도합니다.
+    lerobot 버전/구조에 따라 OpenCV 카메라 config import 경로가 다를 수 있어서
+    몇 가지 후보를 best-effort로 시도합니다.
     """
     candidates = [
-        ("lerobot.cameras.opencv_camera", "OpenCVCameraConfig"),
-        ("lerobot.cameras.opencv", "OpenCVCameraConfig"),
-        ("lerobot.cameras.opencv.config", "OpenCVCameraConfig"),
+        "lerobot.cameras.opencv.config_opencv_camera:OpenCVCameraConfig",
+        "lerobot.cameras.opencv_camera:OpenCVCameraConfig",
+        "lerobot.cameras.configs:OpenCVCameraConfig",
     ]
-    last_err = None
-    for mod, name in candidates:
+    for spec in candidates:
+        mod, name = spec.split(":")
         try:
             m = __import__(mod, fromlist=[name])
             return getattr(m, name)
-        except Exception as e:
-            last_err = e
+        except Exception:
+            continue
     raise ImportError(
         "Cannot import OpenCVCameraConfig from lerobot. "
-        "Your lerobot version may use a different module path."
-    ) from last_err
+        "lerobot 카메라 config 경로를 확인해 주세요."
+    )
 
 
-def _make_dataclass_instance(cls, raw: dict):
-    """raw dict에서 dataclass field에 해당하는 키만 골라서 생성"""
-    if not is_dataclass(cls):
-        return cls(**raw)
-    allowed = {f.name for f in fields(cls)}
-    kwargs = {k: v for k, v in raw.items() if k in allowed}
-    return cls(**kwargs)
-
-
-def _build_robot_camera_configs(cameras_raw: dict) -> dict:
+def _build_robot_cameras(cameras_cfg: Dict[str, Any]) -> Dict[str, Any]:
     """
-    runtime.yaml의 robot.cameras (dict)를
-    LeRobot이 기대하는 CameraConfig 객체 dict로 변환.
+    ✅ runtime.yaml의 robot.cameras(딕셔너리)를
+    lerobot이 기대하는 CameraConfig 객체 딕셔너리로 변환합니다.
+
+    (이 변환이 없으면: AttributeError: 'dict' object has no attribute 'width')
     """
-    if not cameras_raw:
+    if not cameras_cfg:
         return {}
 
-    opencv_cls = _import_opencv_camera_config_cls()
+    OpenCVCameraConfig = _import_opencv_camera_config()
 
-    cameras_out = {}
-    for name, cam in cameras_raw.items():
-        if cam is None:
-            continue
+    out: Dict[str, Any] = {}
+    for cam_name, cam in cameras_cfg.items():
         if not isinstance(cam, dict):
-            # 이미 객체면 그대로
-            cameras_out[name] = cam
+            out[cam_name] = cam
             continue
 
         cam_type = str(cam.get("type", "opencv")).lower()
         if cam_type != "opencv":
-            raise ValueError(f"Unsupported camera type '{cam_type}' for robot.cameras.{name}")
+            raise ValueError(f"Unsupported camera type for robot.cameras.{cam_name}: {cam_type}")
 
-        # YAML 키 이름 그대로 유지하되, dataclass field만 골라서 넣음
-        cam_cfg = _make_dataclass_instance(opencv_cls, cam)
-        cameras_out[name] = cam_cfg
-
-    return cameras_out
-
+        out[cam_name] = OpenCVCameraConfig(
+            index_or_path=cam.get("index_or_path", 0),
+            width=int(cam.get("width", 640)),
+            height=int(cam.get("height", 480)),
+            fps=int(cam.get("fps", 30)),
+            fourcc=str(cam.get("fourcc", "MJPG")),
+        )
+    return out
 
 
 def _build_so101_config(robot_cfg: Dict[str, Any]) -> SO101FollowerConfig:
@@ -409,8 +315,8 @@ def _build_so101_config(robot_cfg: Dict[str, Any]) -> SO101FollowerConfig:
     rid = str(robot_cfg.get("id", "my_awesome_follower_arm"))
     calib_dir = str(robot_cfg.get("calibration_dir", "")).strip() or None
 
-    cameras_raw = robot_cfg.get("cameras", {}) or {}
-    cameras = _build_robot_camera_configs(cameras_raw)  # ✅ dict -> CameraConfig 객체들
+    cameras_cfg = robot_cfg.get("cameras", {}) or {}
+    cameras = _build_robot_cameras(cameras_cfg)
 
     cfg = SO101FollowerConfig(port=port, id=rid, cameras=cameras)
     if calib_dir:
@@ -418,19 +324,93 @@ def _build_so101_config(robot_cfg: Dict[str, Any]) -> SO101FollowerConfig:
     return cfg
 
 
+def _ramp_to_pose(
+    *,
+    robot,
+    action_features: set[str],
+    target_pose: Dict[str, float],
+    duration_s: float = 2.5,
+    fps: int = 30,
+) -> None:
+    """
+    현재 관절(pos) -> target_pose 로 선형 보간하며 send_action.
+    (ESC 종료 시 안전하게 base_pose로 "천천히" 복귀)
+    """
+    if duration_s <= 0:
+        robot.send_action(normalize_action_keys(target_pose))
+        return
 
-def _best_effort_safe_pose(robot, base_pose_ctrl: BasePoseController, seconds: float = 1.0) -> None:
+    obs = robot.get_observation()
+    target = normalize_action_keys(target_pose)
+
+    start: Dict[str, float] = {}
+    for k in action_features:
+        if k.endswith(".pos") and k in obs:
+            start[k] = float(obs[k])
+        elif k.endswith(".pos") and (k not in obs):
+            # 관측에 없으면 0으로 두기보단 target로 시작
+            start[k] = float(target.get(k, 0.0))
+        else:
+            # non-pos action은 여기서 다루지 않음
+            pass
+
+    # target에 없는 키는 start 유지(급격한 변화 방지)
+    for k in list(start.keys()):
+        if k not in target:
+            target[k] = start[k]
+
+    steps = max(1, int(duration_s * max(1, fps)))
+    dt = 1.0 / max(1, fps)
+
+    for i in range(steps + 1):
+        alpha = i / steps
+        act = {}
+        for k in start:
+            act[k] = (1 - alpha) * start[k] + alpha * target[k]
+        robot.send_action(act)
+        time.sleep(dt)
+
+
+def _best_effort_safe_pose(
+    *,
+    robot,
+    base_ctrl: BasePoseController,
+    action_features: set[str],
+    base_pose: Dict[str, float],
+    ramp_s: float = 2.5,
+    fps: int = 30,
+) -> None:
+    """
+    종료 시:
+    1) 보간으로 base_pose 복귀 시도
+    2) base_ctrl로 hold 유지 시도
+    """
     try:
-        base_pose_ctrl.enable()
-        end = time.perf_counter() + max(0.2, float(seconds))
-        while time.perf_counter() < end:
-            base_pose_ctrl.tick()
-            time.sleep(0.01)
-        logging.info("[SAFE] best-effort base pose sent")
+        _ramp_to_pose(
+            robot=robot,
+            action_features=action_features,
+            target_pose=base_pose,
+            duration_s=ramp_s,
+            fps=fps,
+        )
     except Exception as e:
-        logging.error("[SAFE] failed: %s", e)
+        logging.warning("[SAFE] ramp_to_pose failed: %s", e)
+
+    try:
+        base_ctrl.set_target(base_pose)
+        base_ctrl.enable()
+        end = time.perf_counter() + 0.8
+        while time.perf_counter() < end:
+            base_ctrl.tick()
+            time.sleep(0.01)
+        logging.info("[SAFE] base pose hold sent")
+    except Exception as e:
+        logging.error("[SAFE] base pose hold failed: %s", e)
 
 
+# -----------------------------
+# Main
+# -----------------------------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, default="Panbot/config/runtime.yaml")
@@ -441,19 +421,33 @@ def main():
         raise FileNotFoundError(f"runtime.yaml not found: {yaml_path}")
 
     raw = _load_yaml(yaml_path)
-    cfg = _normalize_runtime_config(raw)
+    cfg = _normalize_cfg(raw)
 
     # logging
-    log_dir = Path(cfg["log"]["dir"]).expanduser().resolve()
+    log_dir = _as_path(cfg["log"]["dir"])
     log_level = str(cfg["log"].get("level", "INFO"))
     _setup_logging(log_dir, log_level)
     logging.info("[CFG] loaded: %s", yaml_path)
 
+    # events (ESC / q)
+    stop_event = threading.Event()
+    preview_off_event = threading.Event()
+    keywatch = KeyWatcher(stop_event, preview_off_event)
+    keywatch.start()
+
+    # SIGINT/SIGTERM도 stop_event로 통일
+    def _sig_handler(signum, frame):
+        logging.info("[SIGNAL] received signum=%s -> stopping...", signum)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
+
     # paths
-    paths = cfg.get("paths", {}) or {}
-    corners = Path(paths.get("corners", "Panbot/vision/calibration/corners.json")).expanduser().resolve()
-    yolo_model = Path(paths.get("yolo_model", "")).expanduser().resolve()
-    gru_ckpt = Path(paths.get("gru_ckpt", "")).expanduser().resolve()
+    paths = cfg["paths"]
+    corners = _as_path(paths["corners"])
+    yolo_model = _as_path(paths["yolo_model"])
+    gru_ckpt = _as_path(paths["gru_ckpt"])
 
     _require_file(corners, "corners.json")
     _require_file(yolo_model, "yolo_model")
@@ -461,22 +455,20 @@ def main():
 
     rp = RuntimePaths(corners=corners, yolo_model=yolo_model, gru_ckpt=gru_ckpt)
 
-    # vision cam config (✅ runtime.yaml: vision.*)
+    # vision config
     vcfg = cfg["vision"]
     cam_index = int(vcfg["cam_index"])
     backend = str(vcfg["backend"])
     mjpg = bool(vcfg["mjpg"])
-    width = int(vcfg["width"])
-    height = int(vcfg["height"])
-    fps = int(vcfg["fps"])
-
-    # vision UI (✅ runtime.yaml: vision.show / scales)
+    v_w = int(vcfg["width"])
+    v_h = int(vcfg["height"])
+    v_fps = int(vcfg["fps"])
     show = bool(vcfg["show"])
     yolo_preview_scale = float(vcfg["yolo_preview_scale"])
     gru_preview_scale = float(vcfg["gru_preview_scale"])
     watchdog_s = float(vcfg["watchdog_s"])
 
-    # task (✅ runtime.yaml: task.*)
+    # task config
     tcfg = cfg["task"]
     main_hz = int(tcfg["hz"])
     dt_main = 1.0 / max(1, main_hz)
@@ -490,37 +482,26 @@ def main():
     task3_duration = float(tcfg["task3_duration_s"])
     wait_23 = float(tcfg["wait_task2_to_task3_s"])
 
-    # robot
-    robot_cfg_dict = cfg["robot"]
-    robot_cfg = _build_so101_config(robot_cfg_dict)
-    robot = make_robot_from_config(robot_cfg)
-
-    # poses (✅ runtime.yaml: poses.*)
-    poses = cfg.get("poses", {}) or {}
+    # poses
+    poses = cfg["poses"]
     base_pose = poses.get("base_pose", None) or DEFAULT_BASE_POSE
-
     init_seq = poses.get("task1_initial_sequence", None)
     ret_seq = poses.get("task1_return_sequence", None)
 
-    stop_flag = {"stop": False}
-    _esc_thread = _start_esc_listener(stop_flag)
-
-
-    def _sig_handler(signum, frame):
-        stop_flag["stop"] = True
-        logging.info("[SIGNAL] received signum=%s -> stopping...", signum)
-
-    signal.signal(signal.SIGINT, _sig_handler)
-    signal.signal(signal.SIGTERM, _sig_handler)
+    # robot
+    robot_cfg = _build_so101_config(cfg["robot"])
+    robot = make_robot_from_config(robot_cfg)
 
     cap = None
-    base_ctrl = None
+    base_ctrl: Optional[BasePoseController] = None
 
     yolo_win = "YOLO"
     gru_win = "GRU"
 
+    action_features: set[str] = set()
+
     try:
-        # 1) connect robot
+        # connect
         logging.info("[ROBOT] connect...")
         robot.connect()
         action_features = set(robot.action_features.keys())
@@ -535,22 +516,22 @@ def main():
         base_ctrl.set_target(base_pose)
         base_ctrl.enable()
 
-        # 2) open vision camera (✅ runtime.yaml: vision.cam_index/backend/mjpg/width/height/fps)
+        # open vision camera
         logging.info("[VISION] open camera...")
         cap = open_camera(
             cam_index=cam_index,
             backend=backend,
             mjpg=mjpg,
-            width=width,
-            height=height,
-            fps=fps,
+            width=v_w,
+            height=v_h,
+            fps=v_fps,
         )
         if not cap.isOpened():
             raise RuntimeError(f"Vision camera open failed: index={cam_index}, backend={backend}")
 
         last_frame_ok_t = time.perf_counter()
 
-        # 3) vision infer objects (✅ runtime.yaml: yolo_trigger / gru_trigger)
+        # build infer objects
         ycfg = cfg["yolo_trigger"]
         yolo_cfg = YOLOSegConfig(
             model_path=rp.yolo_model,
@@ -581,13 +562,13 @@ def main():
         )
         gru = GRUInfer(gru_cfg)
 
-        # 4) Task1 stepper (✅ runtime.yaml: task.* + poses sequences)
+        # Task1 stepper
         t1cfg = Task1MotionConfig(
             fps=main_hz,
             ramp_time_s=task1_ramp,
             pose_hold_s=task1_hold,
         )
-        # sequences override (있으면 적용)
+        # sequences override
         if isinstance(init_seq, list) and len(init_seq) > 0:
             t1cfg.initial_sequence = init_seq
         if isinstance(ret_seq, list) and len(ret_seq) > 0:
@@ -595,18 +576,27 @@ def main():
 
         task1 = Task1MotionStepper(robot, t1cfg, action_features=action_features)
 
-        # =============================
-        # STAGE 1: Task1 INITIAL + YOLO trigger -> interrupt_to_return
-        # =============================
+        # -------------------------
+        # STAGE 1: Task1 + YOLO trigger
+        # -------------------------
         logging.info("[STAGE1] start Task1 INITIAL + YOLO trigger")
-        base_ctrl.disable()
+        base_ctrl.disable()  # task1이 로봇 제어권 가짐
         task1.start_initial()
 
         stage = "TASK1"
         yolo_triggered = False
 
-        while not stop_flag["stop"]:
+        while not stop_event.is_set():
             loop_start = time.perf_counter()
+
+            # q → preview only off
+            if preview_off_event.is_set() and show:
+                show = False
+                try:
+                    cv2.destroyAllWindows()
+                except Exception:
+                    pass
+                logging.info("[UI] preview off (q)")
 
             ok, frame = cap.read()
             if ok and frame is not None:
@@ -624,24 +614,17 @@ def main():
                     logging.info("[YOLO] TRIGGER ✅ info=%s", info)
                     task1.interrupt_to_return()
 
-                # task1 tick
                 task1.step(time.perf_counter())
 
                 if show:
                     cv2.imshow(yolo_win, resize_for_preview(vis, yolo_preview_scale))
                     k = cv2.waitKey(1) & 0xFF
-                    # ESC: 전체 종료 + base pose 복귀 (나중에 처리)
+                    # window에서 ESC도 stop
                     if k == 27:
-                        stop_flag["stop"] = True
-                        
-                    # q: preview만 끄기
-                    elif k == ord("q"):
-                        show = False
-                        try:
-                            cv2.destroyWindow(yolo_win)
-                        except Exception:
-                            pass
-
+                        stop_event.set()
+                    # window에서 q도 preview off
+                    if k in (ord("q"), ord("Q")):
+                        preview_off_event.set()
 
                 if task1.is_return_done():
                     logging.info("[STAGE1] Task1 RETURN done -> Stage2(GRU wait)")
@@ -658,35 +641,38 @@ def main():
                 base_ctrl.tick()
 
                 trig, vis, info = gru.step(frame)
+
                 if show:
                     cv2.imshow(gru_win, resize_for_preview(vis, gru_preview_scale))
                     k = cv2.waitKey(1) & 0xFF
-
-                    # ESC: 전체 종료 + base pose 복귀 (나중에 처리)
                     if k == 27:
-                        stop_flag["stop"] = True
-
-                    # q: preview만 끄기
-                    elif k == ord("q"):
-                        show = False
-                        try:
-                            cv2.destroyWindow(gru_win)
-                        except Exception:
-                            pass
-
+                        stop_event.set()
+                    if k in (ord("q"), ord("Q")):
+                        preview_off_event.set()
 
                 if trig:
                     logging.info("[GRU] TRIGGER ✅ info=%s", info)
                     break
 
-            # loop sleep
+            # fixed loop rate
             elapsed = time.perf_counter() - loop_start
             to_sleep = dt_main - elapsed
             if to_sleep > 0:
                 time.sleep(to_sleep)
 
-        if stop_flag["stop"]:
-            logging.info("[STOP] requested before policies.")
+        # ESC/Signal로 빠져나온 경우: 즉시 base_pose 복귀 후 종료
+        if stop_event.is_set():
+            logging.info("[STOP] requested during vision stage -> safe exit")
+            if base_ctrl is not None:
+                base_ctrl.enable()
+                _best_effort_safe_pose(
+                    robot=robot,
+                    base_ctrl=base_ctrl,
+                    action_features=action_features,
+                    base_pose=base_pose,
+                    ramp_s=2.5,
+                    fps=main_hz,
+                )
             return
 
         # vision 종료
@@ -698,9 +684,9 @@ def main():
         cap.release()
         cap = None
 
-        # =============================
+        # -------------------------
         # STAGE 3: Policy1 (task2)
-        # =============================
+        # -------------------------
         pol = cfg["policies"]
         p1 = pol.get("policy1", {}) or {}
         repo1 = str(p1.get("repo_id", "")).strip()
@@ -709,6 +695,7 @@ def main():
 
         logging.info("[STAGE3] run policy1 repo=%s duration=%.1fs", repo1, task2_duration)
         base_ctrl.disable()
+
         run_pretrained_policy_shared_robot(
             robot=robot,
             repo_id=repo1,
@@ -721,22 +708,39 @@ def main():
             use_amp=bool(p1.get("use_amp", True)),
             print_joints=bool(p1.get("print_joints", False)),
             print_joints_every=int(p1.get("print_joints_every", 30)),
-            stop_fn=lambda: stop_flag["stop"],
+            stop_event=stop_event,  # ✅ policy 중 ESC 즉시 탈출
         )
-        
-        if stop_flag["stop"]:
-            logging.info("[STOP] requested during policy2 -> go base pose and exit")
+
+        # policy 중 ESC로 끝났으면: base_pose 복귀 후 종료
+        if stop_event.is_set():
+            logging.info("[STOP] requested during policy1 -> safe exit")
             base_ctrl.enable()
-            _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+            _best_effort_safe_pose(
+                robot=robot,
+                base_ctrl=base_ctrl,
+                action_features=action_features,
+                base_pose=base_pose,
+                ramp_s=2.5,
+                fps=policy_fps,
+            )
             return
 
         base_ctrl.enable()
-        _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+        _best_effort_safe_pose(
+            robot=robot,
+            base_ctrl=base_ctrl,
+            action_features=action_features,
+            base_pose=base_pose,
+            ramp_s=1.0,
+            fps=policy_fps,
+        )
 
-        # wait
+        # -------------------------
+        # WAIT between policies
+        # -------------------------
         logging.info("[WAIT] %.1fs at base pose...", wait_23)
         t_end = time.perf_counter() + wait_23
-        while time.perf_counter() < t_end and not stop_flag["stop"]:
+        while time.perf_counter() < t_end and (not stop_event.is_set()):
             loop_start = time.perf_counter()
             base_ctrl.tick()
             elapsed = time.perf_counter() - loop_start
@@ -744,13 +748,22 @@ def main():
             if to_sleep > 0:
                 time.sleep(to_sleep)
 
-        if stop_flag["stop"]:
-            logging.info("[STOP] requested before policy2.")
+        if stop_event.is_set():
+            logging.info("[STOP] requested during wait -> safe exit")
+            base_ctrl.enable()
+            _best_effort_safe_pose(
+                robot=robot,
+                base_ctrl=base_ctrl,
+                action_features=action_features,
+                base_pose=base_pose,
+                ramp_s=2.5,
+                fps=main_hz,
+            )
             return
 
-        # =============================
+        # -------------------------
         # STAGE 4: Policy2 (task3)
-        # =============================
+        # -------------------------
         p2 = pol.get("policy2", {}) or {}
         repo2 = str(p2.get("repo_id", "")).strip()
         if not repo2:
@@ -758,6 +771,7 @@ def main():
 
         logging.info("[STAGE4] run policy2 repo=%s duration=%.1fs", repo2, task3_duration)
         base_ctrl.disable()
+
         run_pretrained_policy_shared_robot(
             robot=robot,
             repo_id=repo2,
@@ -770,36 +784,64 @@ def main():
             use_amp=bool(p2.get("use_amp", True)),
             print_joints=bool(p2.get("print_joints", False)),
             print_joints_every=int(p2.get("print_joints_every", 30)),
-            stop_fn=lambda: stop_flag["stop"],
+            stop_event=stop_event,  # ✅ policy 중 ESC 즉시 탈출
         )
 
-        if stop_flag["stop"]:
-            logging.info("[STOP] requested during policy1 -> go base pose and exit")
+        # policy2 중 ESC
+        if stop_event.is_set():
+            logging.info("[STOP] requested during policy2 -> safe exit")
             base_ctrl.enable()
-            _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+            _best_effort_safe_pose(
+                robot=robot,
+                base_ctrl=base_ctrl,
+                action_features=action_features,
+                base_pose=base_pose,
+                ramp_s=2.5,
+                fps=policy_fps,
+            )
             return
 
-        
         base_ctrl.enable()
-        _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+        _best_effort_safe_pose(
+            robot=robot,
+            base_ctrl=base_ctrl,
+            action_features=action_features,
+            base_pose=base_pose,
+            ramp_s=1.0,
+            fps=policy_fps,
+        )
 
         logging.info("[DONE] main_runtime finished OK ✅")
 
     except Exception as e:
         logging.exception("[FATAL] %s", e)
-        if robot is not None and base_ctrl is not None:
-            _best_effort_safe_pose(robot, base_ctrl, seconds=1.0)
+        # fail-safe
+        try:
+            if base_ctrl is not None and action_features:
+                _best_effort_safe_pose(
+                    robot=robot,
+                    base_ctrl=base_ctrl,
+                    action_features=action_features,
+                    base_pose=base_pose,
+                    ramp_s=2.5,
+                    fps=max(main_hz, 1),
+                )
+        except Exception:
+            pass
         raise
 
     finally:
+        try:
+            keywatch.stop()
+        except Exception:
+            pass
         try:
             if cap is not None:
                 cap.release()
         except Exception:
             pass
         try:
-            if show:
-                cv2.destroyAllWindows()
+            cv2.destroyAllWindows()
         except Exception:
             pass
         try:
