@@ -141,7 +141,7 @@ class YOLOSegInfer:
             vis = overlay_mask(frame, largest, alpha=self.cfg.overlay_alpha)
 
         text = f"[YOLO] ratio={ratio:.3f} thr={self.cfg.area_thr_ratio:.3f} hit={self.hit_count}/{self.cfg.hold_frames} TRIG={triggered}"
-        cv2.putText(vis, text, (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 6)
+        cv2.putText(vis, text, (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 6)
 
         info = {
             "ratio": float(ratio),

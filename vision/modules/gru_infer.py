@@ -221,8 +221,8 @@ class GRUInfer:
 
         text1 = f"[GRU] shown={shown_label} conf={conf:.2f} hold={self.ready_streak}/{self.cfg.ready_hold} TRIG={triggered}"
         text2 = f"buf={len(self.buf)}/{self.need} infer={self.infer_count} fps~{fps_est:.1f}"
-        cv2.putText(vis, text1, (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 6)
-        cv2.putText(vis, text2, (10, 125), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 6)
+        cv2.putText(vis, text1, (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 6)
+        cv2.putText(vis, text2, (20, 175), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 6)
 
         info = {
             "pred_label": pred_label,

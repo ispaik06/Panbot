@@ -129,8 +129,8 @@ class Task1MotionConfig:
     return_ramp_overrides: Dict[int, float] = field(default_factory=dict)
 
     enforce_sequence_lengths: bool = True
-    initial_sequence_len: int = 13
-    return_sequence_len: int = 13
+    initial_sequence_len: int = 10
+    return_sequence_len: int = 11
 
 
 class Mode(Enum):

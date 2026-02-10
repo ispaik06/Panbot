@@ -89,20 +89,25 @@ task:
   hz: 30
 
   # Task1 motion stepper
-  task1_ramp_time_s: 0.8
-  task1_pose_hold_s: 0.0
+  task1_ramp_time_s: 1.0
+  task1_pose_hold_s: 0.01
   task1_initial_ramp_overrides:
     0: 5.0
     1: 1.0
-  task1_return_to_base_ramp_time_s: 3.0
+  # return sequence에서 각 pose 진입 ramp 시간 override
+  # key는 "목표 pose 인덱스(0-based)".
+  # 즉 1번째 -> 2번째 이동은 key=1
+  task1_return_ramp_overrides:
+    2: 3.0
+  task1_return_to_base_ramp_time_s: 1.0
 
   # Base pose 유지
-  base_pose_hold_interval_s: 0.25
+  base_pose_hold_interval_s: 0.01
 
   # Policy
   policy_fps: 30
-  task2_duration_s: 180.0
-  task3_duration_s: 180.0
+  task2_duration_s: 90.0
+  task3_duration_s: 90.0
   wait_task2_to_task3_s: 30.0
 
 poses:
@@ -116,32 +121,33 @@ poses:
 
   task1_initial_sequence:
     - { shoulder_pan.pos: -0.307, shoulder_lift.pos: -72.801, elbow_flex.pos: 84.552, wrist_flex.pos: 50.360, wrist_roll.pos: 53.253, gripper.pos: 0.719 }
-    - { shoulder_pan.pos: -33.304, shoulder_lift.pos: -73.566, elbow_flex.pos: 83.462, wrist_flex.pos: 50.106, wrist_roll.pos: 53.410, gripper.pos: 0.719 }
+    # - { shoulder_pan.pos: -33.304, shoulder_lift.pos: -73.566, elbow_flex.pos: 83.462, wrist_flex.pos: 50.106, wrist_roll.pos: 53.410, gripper.pos: 0.719 }
     - { shoulder_pan.pos: -65.687, shoulder_lift.pos: -73.736, elbow_flex.pos: 77.828, wrist_flex.pos: 50.106, wrist_roll.pos: 53.253, gripper.pos: 0.719 }
-    - { shoulder_pan.pos: -65.687, shoulder_lift.pos: -34.042, elbow_flex.pos: 83.189, wrist_flex.pos: -4.363, wrist_roll.pos: 53.200, gripper.pos: 0.719 }
+    #- { shoulder_pan.pos: -65.687, shoulder_lift.pos: -34.042, elbow_flex.pos: 83.189, wrist_flex.pos: -4.363, wrist_roll.pos: 53.200, gripper.pos: 0.719 }
     - { shoulder_pan.pos: -57.086, shoulder_lift.pos: -6.927, elbow_flex.pos: 80.918, wrist_flex.pos: -40.280, wrist_roll.pos: 53.410, gripper.pos: 43.754 }
     - { shoulder_pan.pos: -57.789, shoulder_lift.pos: 30.557, elbow_flex.pos: 53.112, wrist_flex.pos: -72.300, wrist_roll.pos: 53.200, gripper.pos: 43.819 }
     - { shoulder_pan.pos: -58.842, shoulder_lift.pos: 39.482, elbow_flex.pos: 38.028, wrist_flex.pos: -72.469, wrist_roll.pos: 53.515, gripper.pos: 73.185 }
     - { shoulder_pan.pos: -58.929, shoulder_lift.pos: 38.717, elbow_flex.pos: 40.118, wrist_flex.pos: -72.808, wrist_roll.pos: 53.463, gripper.pos: 18.000 }
     - { shoulder_pan.pos: -59.017, shoulder_lift.pos: 0.552, elbow_flex.pos: 41.118, wrist_flex.pos: -39.094, wrist_roll.pos: 53.515, gripper.pos: 18.000 }
     - { shoulder_pan.pos: -31.900, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.982, wrist_roll.pos: 43.284, gripper.pos: 18.000 }
-    - { shoulder_pan.pos: -20.140, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.389, wrist_roll.pos: 23.977, gripper.pos: 18.000 }
-    - { shoulder_pan.pos: -22.510, shoulder_lift.pos: -1.912, elbow_flex.pos: 35.575, wrist_flex.pos: -21.220, wrist_roll.pos: 0.000, gripper.pos: 18.000 }
-    - { shoulder_pan.pos: -22.334, shoulder_lift.pos: -4.547, elbow_flex.pos: 35.666, wrist_flex.pos: -21.220, wrist_roll.pos: -10.808, gripper.pos: 18.000 }
+    #- { shoulder_pan.pos: -20.140, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.389, wrist_roll.pos: 23.977, gripper.pos: 18.000 }
+    - { shoulder_pan.pos: -29.510, shoulder_lift.pos: -1.912, elbow_flex.pos: 25.575, wrist_flex.pos: -21.220, wrist_roll.pos: 0.000, gripper.pos: 18.000 }
+    - { shoulder_pan.pos: -26.334, shoulder_lift.pos: -0.547, elbow_flex.pos: 25.666, wrist_flex.pos: -21.220, wrist_roll.pos: -10.808, gripper.pos: 18.000 }
 
   task1_return_sequence:
-    - { shoulder_pan.pos: -22.334, shoulder_lift.pos: -4.547, elbow_flex.pos: 35.666, wrist_flex.pos: -21.220, wrist_roll.pos: -10.808, gripper.pos: 18.000 }
-    - { shoulder_pan.pos: -22.510, shoulder_lift.pos: -1.912, elbow_flex.pos: 35.575, wrist_flex.pos: -21.220, wrist_roll.pos: 0.000, gripper.pos: 18.000 }
-    - { shoulder_pan.pos: -20.140, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.389, wrist_roll.pos: 23.977, gripper.pos: 18.000 }
-    - { shoulder_pan.pos: -31.900, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.982, wrist_roll.pos: 43.284, gripper.pos: 18.000 }
+    - { shoulder_pan.pos: -26.334, shoulder_lift.pos: -0.547, elbow_flex.pos: 25.666, wrist_flex.pos: -21.220, wrist_roll.pos: -10.808, gripper.pos: 18.000 }
+    - { shoulder_pan.pos: -9.510, shoulder_lift.pos: -1.912, elbow_flex.pos: 25.575, wrist_flex.pos: -21.220, wrist_roll.pos: 40.000, gripper.pos: 18.000 }
+    - { shoulder_pan.pos: -10.510, shoulder_lift.pos: -1.912, elbow_flex.pos: 25.575, wrist_flex.pos: -21.220, wrist_roll.pos: 53.000, gripper.pos: 18.000 }
+    #- { shoulder_pan.pos: -20.140, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.389, wrist_roll.pos: 23.977, gripper.pos: 18.000 }
+    - { shoulder_pan.pos: -31.900, shoulder_lift.pos: -4.377, elbow_flex.pos: 35.393, wrist_flex.pos: -21.982, wrist_roll.pos: 50.284, gripper.pos: 18.000 }
     - { shoulder_pan.pos: -59.017, shoulder_lift.pos: 0.552, elbow_flex.pos: 41.118, wrist_flex.pos: -39.094, wrist_roll.pos: 53.515, gripper.pos: 18.000 }
     - { shoulder_pan.pos: -58.929, shoulder_lift.pos: 38.717, elbow_flex.pos: 40.118, wrist_flex.pos: -72.808, wrist_roll.pos: 53.463, gripper.pos: 18.000 }
     - { shoulder_pan.pos: -58.842, shoulder_lift.pos: 39.482, elbow_flex.pos: 38.028, wrist_flex.pos: -72.469, wrist_roll.pos: 53.515, gripper.pos: 73.185 }
     - { shoulder_pan.pos: -57.789, shoulder_lift.pos: 30.557, elbow_flex.pos: 53.112, wrist_flex.pos: -72.300, wrist_roll.pos: 53.200, gripper.pos: 43.819 }
     - { shoulder_pan.pos: -57.086, shoulder_lift.pos: -6.927, elbow_flex.pos: 80.918, wrist_flex.pos: -40.280, wrist_roll.pos: 53.410, gripper.pos: 43.754 }
-    - { shoulder_pan.pos: -65.687, shoulder_lift.pos: -34.042, elbow_flex.pos: 83.189, wrist_flex.pos: -4.363, wrist_roll.pos: 53.200, gripper.pos: 0.719 }
+    #- { shoulder_pan.pos: -65.687, shoulder_lift.pos: -34.042, elbow_flex.pos: 83.189, wrist_flex.pos: -4.363, wrist_roll.pos: 53.200, gripper.pos: 0.719 }
     - { shoulder_pan.pos: -65.687, shoulder_lift.pos: -73.736, elbow_flex.pos: 77.828, wrist_flex.pos: 50.106, wrist_roll.pos: 53.253, gripper.pos: 0.719 }
-    - { shoulder_pan.pos: -33.304, shoulder_lift.pos: -73.566, elbow_flex.pos: 83.462, wrist_flex.pos: 50.106, wrist_roll.pos: 53.410, gripper.pos: 0.719 }
+    #- { shoulder_pan.pos: -33.304, shoulder_lift.pos: -73.566, elbow_flex.pos: 83.462, wrist_flex.pos: 50.106, wrist_roll.pos: 53.410, gripper.pos: 0.719 }
     - { shoulder_pan.pos: -0.307, shoulder_lift.pos: -72.801, elbow_flex.pos: 84.552, wrist_flex.pos: 50.360, wrist_roll.pos: 53.253, gripper.pos: 0.719 }
 
 policies:

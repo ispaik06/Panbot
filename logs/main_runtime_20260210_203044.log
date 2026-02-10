@@ -1,0 +1,94 @@
+2026-02-10 20:30:44,336 | INFO | ==================================================
+2026-02-10 20:30:44,336 | INFO | [main_runtime] logging started
+2026-02-10 20:30:44,336 | INFO | log_file=/home/user/Panbot/logs/main_runtime_20260210_203044.log
+2026-02-10 20:30:44,336 | INFO | ==================================================
+2026-02-10 20:30:44,336 | INFO | [CFG] loaded: /home/user/Panbot/config/runtime.yaml
+2026-02-10 20:30:44,337 | INFO | [KEY] KeyWatcher started (ESC=stop, q=preview off)
+2026-02-10 20:30:44,339 | INFO | [ROBOT] connect...
+2026-02-10 20:30:45,766 | INFO | OpenCVCamera(2) connected.
+2026-02-10 20:30:47,120 | INFO | OpenCVCamera(6) connected.
+2026-02-10 20:30:48,479 | INFO | OpenCVCamera(4) connected.
+2026-02-10 20:30:49,836 | INFO | OpenCVCamera(0) connected.
+2026-02-10 20:30:49,878 | INFO | my_awesome_follower_arm SO101Follower connected.
+2026-02-10 20:30:49,878 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 20:30:49,878 | INFO | [BASE_POSE] enabled
+2026-02-10 20:30:49,878 | INFO | [VISION] open camera...
+2026-02-10 20:30:50,331 | INFO | [STAGE1] start Task1 INITIAL + YOLO trigger
+2026-02-10 20:30:50,332 | INFO | [BASE_POSE] disabled
+2026-02-10 20:30:50,342 | INFO | [TASK1] INITIAL pose 1/10 -> RAMP
+2026-02-10 20:30:50,343 | INFO | [TASK1] start_initial (stepper)
+2026-02-10 20:30:55,387 | INFO | [TASK1] INITIAL pose 1/10 -> HOLD
+2026-02-10 20:30:55,450 | INFO | [TASK1] INITIAL pose 2/10 -> RAMP
+2026-02-10 20:30:56,468 | INFO | [TASK1] INITIAL pose 2/10 -> HOLD
+2026-02-10 20:30:56,528 | INFO | [TASK1] INITIAL pose 3/10 -> RAMP
+2026-02-10 20:30:57,551 | INFO | [TASK1] INITIAL pose 3/10 -> HOLD
+2026-02-10 20:30:57,615 | INFO | [TASK1] INITIAL pose 4/10 -> RAMP
+2026-02-10 20:30:58,661 | INFO | [TASK1] INITIAL pose 4/10 -> HOLD
+2026-02-10 20:30:58,730 | INFO | [TASK1] INITIAL pose 5/10 -> RAMP
+2026-02-10 20:30:59,780 | INFO | [TASK1] INITIAL pose 5/10 -> HOLD
+2026-02-10 20:30:59,850 | INFO | [TASK1] INITIAL pose 6/10 -> RAMP
+2026-02-10 20:31:00,856 | INFO | [TASK1] INITIAL pose 6/10 -> HOLD
+2026-02-10 20:31:00,916 | INFO | [TASK1] INITIAL pose 7/10 -> RAMP
+2026-02-10 20:31:01,961 | INFO | [TASK1] INITIAL pose 7/10 -> HOLD
+2026-02-10 20:31:02,028 | INFO | [TASK1] INITIAL pose 8/10 -> RAMP
+2026-02-10 20:31:03,059 | INFO | [TASK1] INITIAL pose 8/10 -> HOLD
+2026-02-10 20:31:03,125 | INFO | [TASK1] INITIAL pose 9/10 -> RAMP
+2026-02-10 20:31:04,151 | INFO | [TASK1] INITIAL pose 9/10 -> HOLD
+2026-02-10 20:31:04,218 | INFO | [TASK1] INITIAL pose 10/10 -> RAMP
+2026-02-10 20:31:05,252 | INFO | [TASK1] INITIAL pose 10/10 -> HOLD
+2026-02-10 20:31:05,321 | INFO | [TASK1] INITIAL sequence DONE
+2026-02-10 20:31:18,278 | INFO | [YOLO] TRIGGER ✅ info={'ratio': 0.14560666224295982, 'mask_area': 829460.0, 'hit_count': 30, 'hold_frames': 30, 'triggered': True}
+2026-02-10 20:31:18,278 | INFO | [TASK1] interrupt_to_return requested
+2026-02-10 20:31:18,279 | INFO | [TASK1] RETURN pose 1/10 -> RAMP
+2026-02-10 20:31:19,340 | INFO | [TASK1] RETURN pose 1/10 -> HOLD
+2026-02-10 20:31:19,428 | INFO | [TASK1] RETURN pose 2/10 -> RAMP
+2026-02-10 20:31:20,498 | INFO | [TASK1] RETURN pose 2/10 -> HOLD
+2026-02-10 20:31:20,579 | INFO | [TASK1] RETURN pose 3/10 -> RAMP
+2026-02-10 20:31:21,603 | INFO | [TASK1] RETURN pose 3/10 -> HOLD
+2026-02-10 20:31:21,682 | INFO | [TASK1] RETURN pose 4/10 -> RAMP
+2026-02-10 20:31:22,684 | INFO | [TASK1] RETURN pose 4/10 -> HOLD
+2026-02-10 20:31:22,773 | INFO | [TASK1] RETURN pose 5/10 -> RAMP
+2026-02-10 20:31:23,840 | INFO | [TASK1] RETURN pose 5/10 -> HOLD
+2026-02-10 20:31:23,934 | INFO | [TASK1] RETURN pose 6/10 -> RAMP
+2026-02-10 20:31:25,012 | INFO | [TASK1] RETURN pose 6/10 -> HOLD
+2026-02-10 20:31:25,100 | INFO | [TASK1] RETURN pose 7/10 -> RAMP
+2026-02-10 20:31:26,164 | INFO | [TASK1] RETURN pose 7/10 -> HOLD
+2026-02-10 20:31:26,253 | INFO | [TASK1] RETURN pose 8/10 -> RAMP
+2026-02-10 20:31:27,309 | INFO | [TASK1] RETURN pose 8/10 -> HOLD
+2026-02-10 20:31:27,394 | INFO | [TASK1] RETURN pose 9/10 -> RAMP
+2026-02-10 20:31:28,408 | INFO | [TASK1] RETURN pose 9/10 -> HOLD
+2026-02-10 20:31:28,498 | INFO | [TASK1] RETURN pose 10/10 -> RAMP
+2026-02-10 20:31:29,562 | INFO | [TASK1] RETURN pose 10/10 -> HOLD
+2026-02-10 20:31:29,643 | INFO | [TASK1] RETURN sequence DONE
+2026-02-10 20:31:29,659 | INFO | [STAGE1] Task1 RETURN done -> Stage2(GRU wait)
+2026-02-10 20:31:29,660 | INFO | [BASE_POSE] ramp start: duration_s=1.000
+2026-02-10 20:31:29,661 | INFO | [BASE_POSE] enabled
+2026-02-10 20:31:30,688 | INFO | [BASE_POSE] ramp done -> hold target
+2026-02-10 20:38:05,486 | INFO | [GRU] TRIGGER ✅ info={'pred_label': 'ready', 'shown_label': 'ready', 'conf': 0.5259211659431458, 'ready_streak': 3, 'ready_hold': 3, 'buffer': 91, 'buffer_need': 91, 'triggered': True}
+2026-02-10 20:38:05,915 | INFO | [STAGE3] run policy1 repo=ispaik06/act_panbot_task2_3 duration=180.0s
+2026-02-10 20:38:05,915 | INFO | [BASE_POSE] disabled
+2026-02-10 20:38:05,915 | INFO | [POLICY] load pretrained repo_id=ispaik06/act_panbot_task2_3
+2026-02-10 20:38:07,381 | INFO | [POLICY] start fps=30 duration_s=180.0 use_amp=True task=None
+2026-02-10 20:41:07,393 | INFO | [POLICY] done (steps=5320)
+2026-02-10 20:41:07,394 | INFO | [BASE_POSE] enabled
+2026-02-10 20:41:08,490 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 20:41:08,490 | INFO | [BASE_POSE] enabled
+2026-02-10 20:41:09,305 | INFO | [SAFE] base pose hold sent
+2026-02-10 20:41:09,306 | INFO | [WAIT] 30.0s at base pose...
+2026-02-10 20:41:39,312 | INFO | [STAGE4] run policy2 repo=ispaik06/act_panbot_task3_3 duration=180.0s
+2026-02-10 20:41:39,312 | INFO | [BASE_POSE] disabled
+2026-02-10 20:41:39,312 | INFO | [POLICY] load pretrained repo_id=ispaik06/act_panbot_task3_3
+2026-02-10 20:41:40,670 | INFO | [POLICY] start fps=30 duration_s=180.0 use_amp=True task=None
+2026-02-10 20:42:30,312 | INFO | [POLICY] stop_event set -> break
+2026-02-10 20:42:30,313 | INFO | [POLICY] done (steps=1461)
+2026-02-10 20:42:30,313 | INFO | [STOP] requested during policy2 -> safe exit
+2026-02-10 20:42:30,313 | INFO | [BASE_POSE] enabled
+2026-02-10 20:42:32,927 | INFO | [BASE_POSE] target set (6 keys)
+2026-02-10 20:42:32,927 | INFO | [BASE_POSE] enabled
+2026-02-10 20:42:33,735 | INFO | [SAFE] base pose hold sent
+2026-02-10 20:42:33,735 | INFO | [KEY] KeyWatcher stopped
+2026-02-10 20:42:33,890 | INFO | OpenCVCamera(2) disconnected.
+2026-02-10 20:42:33,983 | INFO | OpenCVCamera(6) disconnected.
+2026-02-10 20:42:34,107 | INFO | OpenCVCamera(4) disconnected.
+2026-02-10 20:42:34,219 | INFO | OpenCVCamera(0) disconnected.
+2026-02-10 20:42:34,220 | INFO | my_awesome_follower_arm SO101Follower disconnected.
