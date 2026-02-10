@@ -1,0 +1,85 @@
+name: panbot
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # --- core ---
+  - python=3.10
+  - pip
+
+  # --- system / media / gui ---
+  - ffmpeg
+  - opencv
+  - pyqt
+  - pyzmq
+  - qt-main
+  - fontconfig
+
+  # --- common scientific stack (optional but useful) ---
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - tqdm
+  - pyyaml
+  - git
+
+  # --- pip packages (Panbot/LeRobot focused) ---
+  - pip:
+      # ---- pytorch (GPU/CPU 환경에 따라 pip가 자동으로 맞는 wheel을 잡는 편이라 버전 고정 X 권장) ----
+      - torch
+      - torchvision
+
+      # ---- HF / training ----
+      - accelerate
+      - datasets
+      - diffusers
+      - huggingface-hub
+      - hf_transfer
+      - safetensors
+      - tokenizers
+
+      # transformers는 사용 중이던 git commit을 유지 (필요 기능/호환성 때문에)
+      - transformers @ git+https://github.com/huggingface/transformers.git@dcddb970176382c0fcf4521b0c0e6fc15894dfe0
+
+      # LeRobot (사용 중이던 commit 유지)
+      - -e git+https://github.com/Seeed-Projects/lerobot.git@af4766b60250f8a52d0b9de730a2fd1919c0c48b#egg=lerobot
+
+      # ---- vision / robotics ----
+      - ultralytics
+      - ultralytics-thop
+      - av
+      - imageio
+      - imageio-ffmpeg
+      - einops
+
+      # ---- device / io (servo, keyboard/mouse input, serial) ----
+      - pyserial
+      - pynput
+      - python-xlib
+      - evdev
+      - feetech-servo-sdk
+
+      # ---- utilities / cli ----
+      - click
+      - typer-slim
+      - shellingham
+      - draccus
+      - inquirerpy
+      - jsonlines
+      - deepdiff
+      - intervaltree
+      - regex
+      - requests
+
+      # ---- logging / monitoring (optional but commonly used) ----
+      - wandb
+      - tensorboard
+
+      # ---- misc (lerobot에서 함께 쓰이던 것들 중 비교적 안전한 것) ----
+      - GitPython
+      - psutil
+      - cloudpickle
+      - dill
+      - tenacity
