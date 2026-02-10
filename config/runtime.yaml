@@ -40,7 +40,7 @@ robot:
       fourcc: "MJPG"
     wrist:
       type: "opencv"
-      index_or_path: 10
+      index_or_path: 0
       width: 640
       height: 480
       fps: 30
@@ -48,7 +48,7 @@ robot:
 
 vision:
   # ✅ YOLO/GRU가 공유해서 쓰는 "단일" 비전 카메라
-  cam_index: 0
+  cam_index: 10
   backend: "v4l2"
   mjpg: true
 
