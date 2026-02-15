@@ -1,50 +1,128 @@
 
 # Panbot 🤖🥞
+Vision-triggered robot runtime for **LeRobot SO-ARM101 / SO101 follower arm** with **YOLO segmentation trigger** + **GRU readiness trigger** + **LeRobot pretrained policies (ACT)**.
 
-Vision-triggered robot runtime for SO101 follower arm + YOLO segmentation + GRU readiness trigger + LeRobot policies.
-
-## What this project does
-
-`Panbot/control/main_runtime.py`는 아래 순서로 동작합니다.
-
-1. **로봇 연결** (SO101 follower)
-2. **Vision 카메라 오픈** (YOLO/GRU가 공유하는 단일 카메라)
-3. **Task1 모션 실행** 중 YOLO 트리거가 발생하면 복귀(return) 시퀀스로 전환
-4. Task1 return 완료 후 **GRU 트리거 대기**
-5. GRU 트리거 발생 시 **Policy1 실행 (Task2)**
-6. 대기 후 **Policy2 실행 (Task3)**
-7. 마지막에 **Base pose 복귀 + 안전 종료**
-
-> 핵심:
->
-> * **vision.cam_index 카메라**는 YOLO/GRU 트리거용(단일 공유)
-> * **robot.cameras**는 Policy(LeRobot) 관측용(오른/왼/글로벌/손목 등)로 별도입니다.
+> **Core idea**
+> - One shared **vision trigger camera** (YOLO + GRU) decides **when to switch stages**
+> - Separate **policy observation cameras** (LeRobot `robot.cameras`) feed multi-view observations to policies (global/left/right/wrist, etc.)
+> - A single runtime orchestrator (`Panbot/control/main_runtime.py`) drives the entire pipeline end-to-end
 
 ---
 
-## Folder Structure
+## Demo Video 🎥
+Watch the full runtime demo on YouTube:  
+👉 [Panbot Demo – Vision-Triggered Runtime (YOLO + GRU + ACT)](https://youtu.be/SyGJ2h8aM98)
+
+
+---
+
+## Table of Contents
+- [What this project does](#what-this-project-does)
+- [System architecture](#system-architecture)
+- [Vision modules (external repo)](#vision-modules-external-repo)
+- [Datasets & pretrained ACT models](#datasets--pretrained-act-models)
+- [Folder structure](#folder-structure)
+- [Main entry](#main-entry-panbotcontrolmain_runtimepy)
+- [Configuration](#configuration-panbotconfigruntimeyaml)
+- [Quick start](#quick-start)
+- [Runtime stages](#runtime-stages-debug-friendly)
+- [Logs](#logs)
+- [Troubleshooting](#troubleshooting)
+- [Safety notes](#safety-notes)
+- [Collaborators](#collaborators)
+
+---
+
+## What this project does
+
+`Panbot/control/main_runtime.py` runs the following sequence:
+
+1. **Connect robot** (SO101 follower arm)
+2. **Open vision camera** (single shared camera used by YOLO + GRU triggers)
+3. **Run Task 1 motion**, continuously checking the YOLO trigger  
+   - When the YOLO trigger fires, the runtime switches Task 1 into a **return sequence**
+4. After Task 1 return completes, **wait for GRU trigger**
+5. When the GRU trigger fires, **run Policy 1 (Task 2)**
+6. Wait for a configured duration, then **run Policy 2 (Task 3)**
+7. Finally, **return to base pose + clean/safe shutdown**
+
+### Key distinction (important)
+- `vision.cam_index`  
+  ✅ One **shared** camera for **YOLO/GRU triggers** (stage switching)
+- `robot.cameras`  
+  ✅ Separate set of **policy observation cameras** for **LeRobot policies** (multi-view)
+
+---
+
+## System architecture
+
+### Two camera pipelines
+**(A) Trigger pipeline (YOLO + GRU)**  
+- Input: `vision.cam_index` camera stream  
+- Optional: perspective warp using `corners.json`  
+- Output: trigger booleans + visualization frames + debug info
+
+**(B) Policy pipeline (LeRobot)**  
+- Input: `robot.cameras.*` (right/left/global/wrist, etc.)  
+- Used only during policy execution stages  
+- Output: actions sent to the robot at `policy_fps`
+
+### Stage switching logic (high-level)
+- **YOLO trigger** → signals “Task 1 is done / batter coverage reached” → switch Task 1 into return mode
+- **GRU trigger** → signals “cooking readiness reached” → start Task 2 policy (and later Task 3)
+
+---
+
+## Vision modules (external repo)
+
+This runtime repository focuses on **orchestrating** robot control + triggers + policies.
+
+For the vision pipeline implementation details—dataset generation utilities, training code, model/export specifics, and trigger inference modules—please refer to:
+
+- **Panbot_vision:** https://github.com/ispaik06/Panbot_vision
+
+> If you modify vision inference behavior (warp, preprocessing, label mapping, etc.), keep the runtime config (`runtime.yaml`) aligned with the vision repo’s expected preprocessing and checkpoint formats.
+
+---
+
+## Datasets & pretrained ACT models
+
+The runtime expects policy repo IDs in `runtime.yaml` (e.g., `policies.policy1.repo_id`, `policies.policy2.repo_id`).  
+Public datasets and pretrained ACT models used for Panbot are available here:
+
+### Hugging Face datasets
+- Task 2 dataset: https://huggingface.co/datasets/ispaik06/Panbot_task2_dataset_3  
+- Task 3 dataset: https://huggingface.co/datasets/ispaik06/Panbot_task3_dataset_3  
+
+### Hugging Face ACT policy checkpoints
+- ACT Task 2: https://huggingface.co/ispaik06/act_panbot_task2_3  
+- ACT Task 3: https://huggingface.co/ispaik06/act_panbot_task3_3  
+
+---
+
+## Folder structure
 
 ```bash
 Panbot/
 ├─ config/
-│  └─ runtime.yaml                  # 런타임 설정(카메라/트리거/태스크/정책/포즈)
+│  └─ runtime.yaml                  # Runtime config (camera/trigger/tasks/policies/poses/logging)
 │
 ├─ control/
-│  └─ main_runtime.py               # ✅ 메인 실행 파일(전체 파이프라인 오케스트레이션)
+│  └─ main_runtime.py               # ✅ Main runtime orchestrator (end-to-end pipeline)
 │
 ├─ vision/
 │  ├─ calibration/
-│  │  └─ corners.json               # 워프(원근 보정)용 4점 코너
+│  │  └─ corners.json               # 4-point corners for perspective warp (optional)
 │  │
 │  ├─ models/
 │  │  └─ runs/
-│  │     ├─ batter_seg_local_v1/weights/best.pt     # YOLO Seg 모델
-│  │     └─ resnet18_gru16_cls/best.pt              # GRU 체크포인트
+│  │     ├─ batter_seg_local_v1/weights/best.pt     # YOLO segmentation model
+│  │     └─ resnet18_gru16_cls/best.pt              # GRU checkpoint
 │  │
 │  └─ modules/
 │     ├─ camera.py                  # open_camera(), resize_for_preview()
-│     ├─ yoloseg_infer.py            # YOLOSegConfig, YOLOSegInfer (trigger+vis)
-│     └─ gru_infer.py                # GRUInferConfig, GRUInfer (trigger+vis)
+│     ├─ yoloseg_infer.py           # YOLOSegConfig, YOLOSegInfer (trigger + visualization)
+│     └─ gru_infer.py               # GRUInferConfig, GRUInfer (trigger + visualization)
 │
 ├─ tasks/
 │  ├─ base_pose.py                   # BasePoseController, HoldConfig
@@ -54,62 +132,52 @@ Panbot/
 │  └─ common_policy_runner.py        # run_pretrained_policy_shared_robot()
 │
 └─ logs/
-   └─ (runtime logs output here)     # runtime.yaml의 log.dir 기준
+   └─ (runtime logs output here)     # Controlled by runtime.yaml -> log.dir
 ```
 
-> 실제 경로는 프로젝트 상태에 따라 조금 다를 수 있으나, `main_runtime.py`가 직접 import하는 경로는 위 구조를 기준으로 합니다.
+> Paths may vary slightly depending on your local project state, but this README reflects the import paths used by `main_runtime.py`.
 
 ---
 
-## Main Entry: `Panbot/control/main_runtime.py`
+## Main entry: `Panbot/control/main_runtime.py`
 
-### What it imports & uses (with paths)
+Below is what the runtime imports and how each component is used.
 
-#### 1) Runtime Config / Logging
+### 1) Runtime config & logging
+- Config file: `Panbot/config/runtime.yaml`
+- Logging:
+  - Reads `log.dir`, `log.level`
+  - Logs to both **stdout** and **file**
 
-* **Config**
-
-  * `Panbot/config/runtime.yaml`
-* **Logging**
-
-  * runtime.yaml의 `log.dir`, `log.level`을 읽어서 파일+stdout 로깅
-
-관련 코드:
-
-* `_load_yaml()`, `_normalize_runtime_config()`
-* `_setup_logging(log_dir, level)`
+Related helpers:
+- `_load_yaml()`, `_normalize_runtime_config()`
+- `_setup_logging(log_dir, level)`
 
 ---
 
-#### 2) Robot (SO101 follower)
+### 2) Robot (SO101 follower)
+Robot creation:
+- `SO101FollowerConfig` from LeRobot
+- `make_robot_from_config`
 
-* 로봇 구성/생성:
+Runtime config keys:
+- `robot.port`, `robot.id`, `robot.calibration_dir`
+- `robot.cameras.*` (policy observation cameras)
 
-  * `from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig`
-  * `from lerobot.robots import make_robot_from_config`
-* 로봇 config 생성 함수:
-
-  * `_build_so101_config(cfg["robot"])`
-
-로봇 관련 runtime.yaml 키:
-
-* `robot.port`, `robot.id`, `robot.calibration_dir`
-* `robot.cameras.*` (Policy 관측용 카메라들)
+Robot config builder:
+- `_build_so101_config(cfg["robot"])`
 
 ---
 
-#### 3) Vision Camera (YOLO/GRU shared)
+### 3) Vision camera (YOLO/GRU shared)
+Vision camera open:
+- `from Panbot.vision.modules.camera import open_camera, resize_for_preview`
 
-* Vision 카메라 오픈:
+Runtime config keys:
+- `vision.cam_index`, `vision.backend`, `vision.mjpg`
+- `vision.width`, `vision.height`, `vision.fps`
 
-  * `from Panbot.vision.modules.camera import open_camera, resize_for_preview`
-* runtime.yaml에서 읽는 값:
-
-  * `vision.cam_index`, `vision.backend`, `vision.mjpg`
-  * `vision.width`, `vision.height`, `vision.fps`
-
-실제 적용되는 부분:
-
+Example:
 ```python
 cap = open_camera(
   cam_index=cam_index,
@@ -123,129 +191,108 @@ cap = open_camera(
 
 ---
 
-#### 4) YOLO Trigger
+### 4) YOLO trigger (segmentation-based)
+File:
+- `Panbot/vision/modules/yoloseg_infer.py`
 
-* 파일:
+Classes:
+- `YOLOSegConfig`, `YOLOSegInfer`
 
-  * `Panbot/vision/modules/yoloseg_infer.py`
-* 클래스:
+Runtime config keys:
+- `yolo_trigger.conf`, `yolo_trigger.imgsz`
+- `yolo_trigger.area_thr_ratio`, `yolo_trigger.hold_frames`
+- `yolo_trigger.use_warp`, `yolo_trigger.warp_w`, `yolo_trigger.warp_h`
+- Warp corners file: `paths.corners`
 
-  * `YOLOSegConfig`, `YOLOSegInfer`
-
-runtime.yaml 키:
-
-* `yolo_trigger.conf`, `imgsz`
-* `yolo_trigger.area_thr_ratio`, `hold_frames`
-* `yolo_trigger.use_warp`, `warp_w`, `warp_h`
-* 워프 코너 파일: `paths.corners`
-
-동작:
-
-* 루프에서 `yolo.step(frame)` 호출 → `(trig, vis, info)` 반환
-* `trig=True`가 최초 발생하면 Task1을 return으로 전환
+Runtime behavior:
+- Call `yolo.step(frame)` → returns `(triggered, vis_frame, info)`
+- On first `triggered=True`, Task 1 switches into return mode
 
 ---
 
-#### 5) GRU Trigger
+### 5) GRU trigger (readiness classifier)
+File:
+- `Panbot/vision/modules/gru_infer.py`
 
-* 파일:
+Classes:
+- `GRUInferConfig`, `GRUInfer`
 
-  * `Panbot/vision/modules/gru_infer.py`
-* 클래스:
+Runtime config keys:
+- `gru_trigger.image_size`, `gru_trigger.seq_len`, `gru_trigger.stride`
+- `gru_trigger.ema`, `gru_trigger.ready_hold`, `gru_trigger.amp`
+- `gru_trigger.use_warp`, `gru_trigger.warp_w`, `gru_trigger.warp_h`
 
-  * `GRUInferConfig`, `GRUInfer`
-
-runtime.yaml 키:
-
-* `gru_trigger.image_size`, `seq_len`, `stride`
-* `gru_trigger.ema`, `ready_hold`, `amp`
-* `gru_trigger.use_warp`, `warp_w`, `warp_h`
-
-동작:
-
-* Task1 return 종료 후 `gru.reset()`
-* 루프에서 `gru.step(frame)` 호출 → `(trig, vis, info)`
-* `trig=True`면 Policy 단계로 넘어감
+Runtime behavior:
+- After Task 1 return completes, call `gru.reset()`
+- Call `gru.step(frame)` → returns `(triggered, vis_frame, info)`
+- When `triggered=True`, start policy stage(s)
 
 ---
 
-#### 6) Task1 Motion (Robot motion)
+### 6) Task 1 motion (deterministic motion)
+File:
+- `Panbot/tasks/task1_motion.py`
 
-* 파일:
+Classes:
+- `Task1MotionConfig`, `Task1MotionStepper`
 
-  * `Panbot/tasks/task1_motion.py`
-* 클래스:
+Related:
+- `DEFAULT_REST_ACTION`
 
-  * `Task1MotionConfig`, `Task1MotionStepper`
-* base pose 관련:
+Runtime config keys:
+- `task.task1_ramp_time_s`
+- `task.task1_pose_hold_s`
+- `poses.task1_initial_sequence`
+- `poses.task1_return_sequence`
 
-  * `DEFAULT_REST_ACTION`
-
-runtime.yaml 키:
-
-* `task.task1_ramp_time_s`
-* `task.task1_pose_hold_s`
-* `poses.task1_initial_sequence`
-* `poses.task1_return_sequence`
-
-로봇이 실제로 움직이는 핵심 호출:
-
-* `task1.start_initial()`
-* 루프에서 `task1.step(time.perf_counter())`
-* 트리거 시 `task1.interrupt_to_return()`
+Key calls:
+- `task1.start_initial()`
+- loop: `task1.step(time.perf_counter())`
+- on YOLO trigger: `task1.interrupt_to_return()`
 
 ---
 
-#### 7) Base Pose Controller (keep stable)
+### 7) Base pose controller (stability / holding)
+File:
+- `Panbot/tasks/base_pose.py`
 
-* 파일:
+Classes:
+- `BasePoseController`, `HoldConfig`
 
-  * `Panbot/tasks/base_pose.py`
-* 클래스:
+Runtime config keys:
+- `poses.base_pose`
+- `task.base_pose_hold_interval_s`
 
-  * `BasePoseController`, `HoldConfig`
-
-runtime.yaml 키:
-
-* `poses.base_pose`
-* `task.base_pose_hold_interval_s`
-
-사용 목적:
-
-* Task1/Policy 사이 구간에서 로봇을 안정적으로 base pose로 유지
-* `base_ctrl.tick()`이 호출되는 동안 유지됨
+Purpose:
+- Keeps the robot stable in base pose between stages
+- Uses periodic ticks (`base_ctrl.tick()`) to hold position safely
 
 ---
 
-#### 8) Policies (LeRobot pretrained)
+### 8) Policies (LeRobot pretrained)
+File:
+- `Panbot/policies/common_policy_runner.py`
 
-* 파일:
+Function:
+- `run_pretrained_policy_shared_robot(...)`
 
-  * `Panbot/policies/common_policy_runner.py`
-* 함수:
+Runtime config keys:
+- `task.policy_fps`
+- `task.task2_duration_s` (Policy 1 duration)
+- `task.task3_duration_s` (Policy 2 duration)
+- `task.wait_task2_to_task3_s`
+- `policies.policy1.repo_id`
+- `policies.policy2.repo_id`
+- `policies.*.use_amp`, `print_joints`, `print_joints_every`, etc.
 
-  * `run_pretrained_policy_shared_robot(...)`
-
-runtime.yaml 키:
-
-* `task.policy_fps`
-* `task.task2_duration_s` (policy1 duration)
-* `task.task3_duration_s` (policy2 duration)
-* `task.wait_task2_to_task3_s`
-* `policies.policy1.repo_id`
-* `policies.policy2.repo_id`
-* `policies.*.use_amp`, `print_joints`, `print_joints_every` 등
-
-로봇이 실제로 움직이는 핵심(Policy 단계):
-
-* `common_policy_runner.py` 내부의 `robot.send_action(...)`
+Robot actuation happens inside:
+- `robot.send_action(...)`
 
 ---
 
 ## Configuration: `Panbot/config/runtime.yaml`
 
 ### Required paths
-
 ```yaml
 paths:
   corners: "Panbot/vision/calibration/corners.json"
@@ -253,8 +300,7 @@ paths:
   gru_ckpt: "Panbot/vision/models/runs/.../best.pt"
 ```
 
-### Vision camera (YOLO/GRU shared)
-
+### Vision camera (shared trigger camera)
 ```yaml
 vision:
   cam_index: 0
@@ -269,19 +315,21 @@ vision:
   watchdog_s: 2.0
 ```
 
-### Robot & policy observation cameras (separate from vision cam)
+Notes:
+- `show: true` typically enables local preview windows for debugging.
+- `watchdog_s` can be used to detect stalled camera capture (implementation-dependent).
 
+### Robot & policy observation cameras (separate from vision)
 ```yaml
 robot:
   port: "/dev/ttyACM0"
   id: "my_awesome_follower_arm"
   cameras:
     right: { type: "opencv", index_or_path: 2, width: 640, height: 480, fps: 30, fourcc: "MJPG" }
-    ...
+    # left/global/wrist/... as needed
 ```
 
-### Triggers
-
+### YOLO trigger parameters
 ```yaml
 yolo_trigger:
   conf: 0.25
@@ -293,6 +341,7 @@ yolo_trigger:
   warp_h: 0
 ```
 
+### GRU trigger parameters
 ```yaml
 gru_trigger:
   image_size: 224
@@ -306,8 +355,7 @@ gru_trigger:
   warp_h: 0
 ```
 
-### Task / Timing / Policies
-
+### Task & timing
 ```yaml
 task:
   hz: 30
@@ -322,72 +370,119 @@ task:
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1) Install / Environment
+### 1) Install / environment
+You need:
+- Python 3.x
+- LeRobot
+- OpenCV
+- PyTorch (CUDA recommended)
+- YOLO inference dependency (e.g., Ultralytics) if your YOLO module expects it
 
-* Python 환경 + LeRobot + OpenCV + Torch(CUDA) 등이 설치되어 있어야 합니다.
-* CUDA가 있는 환경을 가정합니다.
+Example (conceptual):
+```bash
+conda create -n panbot python=3.10 -y
+conda activate panbot
+
+pip install opencv-python torch torchvision
+pip install lerobot
+pip install ultralytics
+```
+
+> CUDA installation depends on your GPU/driver setup. Make sure `torch.cuda.is_available()` is True if you want GPU acceleration.
 
 ### 2) Check camera indices
-
-* `vision.cam_index`는 **YOLO/GRU 트리거용 단일 카메라**입니다.
-* `robot.cameras.*.index_or_path`는 policy observation 카메라입니다.
+- `vision.cam_index` must point to the **trigger camera**
+- `robot.cameras.*.index_or_path` must point to **policy observation cameras**
 
 ### 3) Run
-
 ```bash
 cd ~/Panbot
 
 chmod +x scripts/start_all.sh
-
 ./scripts/start_all.sh
+```
+
+> If you don’t use `start_all.sh`, you can run the runtime module directly (depends on your package layout):
+```bash
+python -m Panbot.control.main_runtime
 ```
 
 ---
 
-## Runtime Flow (debug-friendly)
+## Runtime stages (debug-friendly)
 
-* **Stage1:** Task1 initial + YOLO trigger
+- **Stage 1: Task 1 initial + YOLO trigger**
+  - `task1.step()` moves the robot
+  - `yolo.step(frame)` checks the trigger condition
+  - On trigger → switch into Task 1 return sequence
 
-  * `task1.step()`이 로봇을 움직입니다.
-* **Stage2:** Base pose 유지 + GRU trigger
+- **Stage 2: Base pose hold + GRU trigger**
+  - `base_ctrl.tick()` holds stable base pose
+  - `gru.step(frame)` checks readiness trigger
 
-  * `base_ctrl.tick()`이 로봇을 base pose에 붙잡아둡니다.
-* **Stage3:** Policy1 실행
+- **Stage 3: Policy 1 (Task 2)**
+  - policy runner drives `robot.send_action(...)`
 
-  * policy runner 내부 `robot.send_action()`이 로봇을 움직입니다.
-* **Wait**
-* **Stage4:** Policy2 실행
+- **Wait**
+
+- **Stage 4: Policy 2 (Task 3)**
+
+- **Finalize**
+  - Return to base pose
+  - Release camera resources
+  - Safe shutdown
 
 ---
 
 ## Logs
-
-* 저장 위치: `log.dir` (기본 `Panbot/logs`)
-* 파일명 예: `main_runtime_YYYYMMDD_HHMMSS.log`
+- Location: `log.dir` (default: `Panbot/logs`)
+- Filename example: `main_runtime_YYYYMMDD_HHMMSS.log`
 
 ---
 
 ## Troubleshooting
 
-### Vision camera가 안 열릴 때
+### Vision camera won’t open
+- Verify `vision.cam_index`
+- Try different `vision.backend` values (`v4l2`, `opencv`, etc.)
+- Toggle `vision.mjpg: true/false` depending on your camera
 
-* `vision.cam_index`가 올바른지 확인
-* `backend`가 시스템에 맞는지 확인 (`v4l2`, `opencv` 등)
-* MJPG 설정이 기기와 맞는지 확인 (`mjpg: true/false`)
+### YOLO is too sensitive / not sensitive enough
+Tune:
+- `yolo_trigger.conf`
+- `yolo_trigger.area_thr_ratio`
+- `yolo_trigger.hold_frames`
 
-### YOLO가 너무 민감/둔감할 때
+### GRU trigger is late or never fires
+Tune:
+- `gru_trigger.seq_len`, `gru_trigger.stride`
+- `gru_trigger.ema`
+- `gru_trigger.ready_hold`
 
-* `yolo_trigger.conf`, `area_thr_ratio`, `hold_frames` 조정
+Also confirm:
+- The GRU checkpoint path is correct (`paths.gru_ckpt`)
+- Your preprocessing (warp/resize/normalization) matches training
 
-### GRU 트리거가 늦거나 안 걸릴 때
-
-* `seq_len`, `stride`, `ema`, `ready_hold` 조정
-
-### Policy가 로봇을 안 움직일 때
-
-* `policies.policy1.repo_id / policy2.repo_id` 확인
-* policy runner에서 `robot.send_action()`까지 action이 만들어지는지 로그로 확인
+### Policies don’t move the robot
+Check:
+- `policies.policy1.repo_id` / `policies.policy2.repo_id`
+- Policy runner logs (does it generate actions?)
+- Whether `robot.send_action(...)` is reached
+- Whether `robot.cameras` are streaming correctly (policy observation inputs)
 
 ---
+
+## Safety notes
+- Always test with low speed / safe workspace first.
+- Keep an emergency stop method available (power cutoff or software kill).
+- Make sure your base pose is mechanically safe and collision-free.
+- Do not run unattended until the full pipeline is validated.
+
+---
+
+## Collaborators
+- **Owner / Main developer:** [ispaik06](https://github.com/ispaik06)
+- **Collaborator:** [dongq](https://github.com/dongq)
+
