@@ -13,6 +13,11 @@ Vision-triggered robot runtime for **LeRobot SO-ARM101 / SO101 follower arm** wi
 Watch the full runtime demo on YouTube:  
 👉 [Panbot Demo – Vision-Triggered Runtime (YOLO + GRU + ACT)](https://youtu.be/SyGJ2h8aM98)
 
+---
+
+## Collaborators
+- **Owner / Main developer:** [ispaik06](https://ispaik06.github.io)
+- **Collaborator:** [NmDongQ](https://github.com/NmDongQ)
 
 ---
 
@@ -480,9 +485,4 @@ Check:
 - Make sure your base pose is mechanically safe and collision-free.
 - Do not run unattended until the full pipeline is validated.
 
----
-
-## Collaborators
-- **Owner / Main developer:** [ispaik06](https://ispaik06.github.io)
-- **Collaborator:** [NmDongQ](https://github.com/NmDongQ)
 
