@@ -15,6 +15,8 @@ Panbot combines a deterministic Task 1 motion sequence, a shared vision-trigger 
 
 Full runtime demo: [Panbot Demo - Vision-Triggered Runtime (YOLO + GRU + ACT)](https://youtu.be/SyGJ2h8aM98)
 
+**📖 Technical article:** [Panbot: A Perception-Triggered Autonomous Pancake-Cooking Robot](https://ispaik06.github.io/Panbot/) — a full system deep-dive: architecture, trigger math, GRU training curves, ACT integration, and design notes.
+
 > [!IMPORTANT]
 > **Core idea:** perception decides when the robot should move to the next stage.
 > A single trigger camera watches the cooking state, while separate policy observation cameras feed the ACT policies during manipulation.
