@@ -1,0 +1,187 @@
+<h2 id="runtime"><span class="secno">3</span>Runtime Orchestration</h2>
+
+<p>
+<code>Panbot/control/main_runtime.py</code> is the single process that owns everything: the
+robot connection, the trigger camera, both perception models, the stage machine, and every
+fail-safe. There is no middleware, no message bus, and no second process to fall out of sync
+with. The stage machine it implements is small enough to state exactly (Figure&nbsp;2), and that
+smallness is a feature — every transition is either a perception trigger, a timer, or a
+fail-safe, and each appears as a single greppable line in the run log.
+</p>
+
+<figure class="diagram" role="img" aria-label="Runtime stage machine with fail-safe transitions">
+<svg viewBox="0 0 860 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="dg-arrow"/>
+    </marker>
+  </defs>
+
+  <!-- top row: nominal flow -->
+  <rect x="24" y="40" width="130" height="58" rx="8" class="dg-box"/>
+  <text x="89" y="63" text-anchor="middle" class="dg-text">CONNECT</text>
+  <text x="89" y="79" text-anchor="middle" class="dg-sub">robot + cameras</text>
+  <text x="89" y="92" text-anchor="middle" class="dg-lbl">base pose hold</text>
+
+  <rect x="194" y="40" width="150" height="58" rx="8" class="dg-box"/>
+  <text x="269" y="63" text-anchor="middle" class="dg-text">STAGE 1 · POUR</text>
+  <text x="269" y="79" text-anchor="middle" class="dg-sub">Task1 initial sequence</text>
+  <text x="269" y="92" text-anchor="middle" class="dg-lbl">YOLO watches coverage</text>
+
+  <rect x="384" y="40" width="150" height="58" rx="8" class="dg-box"/>
+  <text x="459" y="63" text-anchor="middle" class="dg-text">RETURN</text>
+  <text x="459" y="79" text-anchor="middle" class="dg-sub">Task1 return sequence</text>
+  <text x="459" y="92" text-anchor="middle" class="dg-lbl">bottle re-docked</text>
+
+  <rect x="574" y="40" width="150" height="58" rx="8" class="dg-box"/>
+  <text x="649" y="63" text-anchor="middle" class="dg-text">WAIT_GRU</text>
+  <text x="649" y="79" text-anchor="middle" class="dg-sub">base-pose hold</text>
+  <text x="649" y="92" text-anchor="middle" class="dg-lbl">GRU watches cook state</text>
+
+  <line x1="154" y1="69" x2="194" y2="69" class="dg-edge" marker-end="url(#arrB)"/>
+  <line x1="344" y1="69" x2="384" y2="69" class="dg-edge" marker-end="url(#arrB)"/>
+  <text x="364" y="58" text-anchor="middle" class="dg-lbl">YOLO ✓</text>
+  <line x1="534" y1="69" x2="574" y2="69" class="dg-edge" marker-end="url(#arrB)"/>
+
+  <!-- down to policies -->
+  <line x1="649" y1="98" x2="649" y2="150" class="dg-edge" marker-end="url(#arrB)"/>
+  <text x="657" y="128" class="dg-lbl">GRU ✓ · trigger camera released</text>
+
+  <rect x="574" y="150" width="150" height="58" rx="8" class="dg-box"/>
+  <text x="649" y="173" text-anchor="middle" class="dg-text">STAGE 3 · FLIP</text>
+  <text x="649" y="189" text-anchor="middle" class="dg-sub">ACT policy 1</text>
+  <text x="649" y="202" text-anchor="middle" class="dg-lbl">90 s @ 30 Hz</text>
+
+  <rect x="384" y="150" width="150" height="58" rx="8" class="dg-box"/>
+  <text x="459" y="173" text-anchor="middle" class="dg-text">WAIT 30 s</text>
+  <text x="459" y="189" text-anchor="middle" class="dg-sub">base-pose hold</text>
+  <text x="459" y="202" text-anchor="middle" class="dg-lbl">second side cooks</text>
+
+  <rect x="194" y="150" width="150" height="58" rx="8" class="dg-box"/>
+  <text x="269" y="173" text-anchor="middle" class="dg-text">STAGE 4 · PLATE</text>
+  <text x="269" y="189" text-anchor="middle" class="dg-sub">ACT policy 2</text>
+  <text x="269" y="202" text-anchor="middle" class="dg-lbl">90 s @ 30 Hz</text>
+
+  <rect x="24" y="150" width="130" height="58" rx="8" class="dg-box"/>
+  <text x="89" y="173" text-anchor="middle" class="dg-text">SHUTDOWN</text>
+  <text x="89" y="189" text-anchor="middle" class="dg-sub">ramp to base pose</text>
+  <text x="89" y="202" text-anchor="middle" class="dg-lbl">disconnect cleanly</text>
+
+  <line x1="574" y1="179" x2="534" y2="179" class="dg-edge" marker-end="url(#arrB)"/>
+  <line x1="384" y1="179" x2="344" y2="179" class="dg-edge" marker-end="url(#arrB)"/>
+  <line x1="194" y1="179" x2="154" y2="179" class="dg-edge" marker-end="url(#arrB)"/>
+
+  <!-- fail-safe band -->
+  <rect x="120" y="288" width="620" height="72" rx="10" class="dg-box-accent"/>
+  <text x="430" y="315" text-anchor="middle" class="dg-text">FAIL-SAFE EXIT — ramp to base pose over 2.5 s, hold, disconnect</text>
+  <text x="430" y="334" text-anchor="middle" class="dg-sub">ESC key · SIGINT / SIGTERM · camera watchdog (2 s without frames) · any unhandled exception</text>
+
+  <line x1="269" y1="98" x2="330" y2="288" class="dg-edge" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
+  <line x1="649" y1="208" x2="620" y2="288" class="dg-edge" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
+  <line x1="459" y1="208" x2="450" y2="288" class="dg-edge" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
+  <line x1="269" y1="208" x2="290" y2="288" class="dg-edge" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
+</svg>
+<figcaption><span class="figno">Figure 2</span>The runtime stage machine. Solid edges are the
+nominal flow; dashed edges are fail-safe exits, reachable from every stage. The trigger camera
+is opened once before Stage&nbsp;1 and released permanently after the GRU trigger — the policy
+stages never touch it.</figcaption>
+</figure>
+
+<h3 id="stage-loop">3.1&ensp;The 30 Hz stage loop</h3>
+
+<p>
+Stages 1 and 2 share one loop body. Each tick reads a frame from the trigger camera, feeds it to
+whichever model is active for the current stage, steps whichever motion controller is active,
+and then sleeps the remainder of the 33.3&nbsp;ms period:
+</p>
+
+<pre><code>while not stop_event.is_set():
+    ok, frame = cap.read()                  # trigger camera, 4K
+    if stage == "TASK1":
+        trig, vis, info = yolo.step(frame)  # coverage ratio + debounce
+        if trig: task1.interrupt_to_return()
+        task1.step(now)                     # one send_action per tick
+        if task1.is_return_done(): stage = "WAIT_GRU"
+    elif stage == "WAIT_GRU":
+        base_ctrl.tick()                    # rate-limited hold
+        trig, vis, info = gru.step(frame)   # cook-state estimate
+        if trig: break                      # → policy stages
+    sleep(dt - elapsed)                     # lock to 30 Hz</code></pre>
+
+<p>
+Two properties of this loop matter more than its simplicity suggests. First, <em>perception and
+motion advance in the same tick</em>: the YOLO trigger does not pause pouring while it thinks,
+because a 640-px single-class segmentation runs comfortably inside the frame budget. Second,
+<em>the trigger is an interrupt, not a phase boundary</em>: when the YOLO event fires mid-ramp,
+<code>interrupt_to_return()</code> abandons the remaining pour waypoints immediately and starts
+the return sequence from the arm's <em>current</em> measured pose, so the pour stops within one
+tick of the decision rather than at the end of a waypoint.
+</p>
+
+<h3 id="ramps">3.2&ensp;Every motion is a ramp</h3>
+
+<p>
+The runtime contains exactly one motion primitive, used by the waypoint stepper, the base-pose
+controller, and every fail-safe path alike: linear interpolation in joint space from the
+robot's current measured configuration to a target, streamed as position commands at the loop
+rate. With start pose $q_0$ (read from the encoders at ramp entry), target $q_1$, and ramp
+duration $T$:
+</p>
+
+$$
+q(t) \;=\; (1-\alpha(t))\, q_0 + \alpha(t)\, q_1,
+\qquad
+\alpha(t) \;=\; \operatorname{clip}\!\Big(\tfrac{t - t_0}{T},\, 0,\, 1\Big),
+$$
+
+<p>
+sent at 30&nbsp;Hz, i.e. $\lceil 30\,T \rceil$ intermediate commands. Reading $q_0$ from the
+observation rather than assuming the previous target is what makes the primitive safe to invoke
+from <em>any</em> state — after an interrupted pour, after a policy rollout that ended in an
+arbitrary configuration, or after an exception. The servos' own position loops handle the
+final tracking; the ramp exists to bound the commanded velocity, since a raw
+<code>send_action</code> jump to a distant pose would command a violent full-speed swing.
+</p>
+
+<h3 id="failsafes">3.3&ensp;Fail-safe paths</h3>
+
+<p>
+Three independent mechanisms can stop a run, and all of them converge on the same exit ramp:
+</p>
+
+<ul>
+  <li><b>Keyboard.</b> A raw-terminal <code>KeyWatcher</code> thread reads stdin byte-by-byte in
+  cbreak mode. A bare <code>ESC</code> byte sets the stop event; <code>q</code> only disables the
+  preview windows. Because arrow keys also begin with <code>ESC</code>, the watcher waits
+  20&nbsp;ms for a following byte and treats <code>ESC</code>-then-something as an escape
+  sequence to ignore — a small detail that prevents an accidental arrow-key press from
+  emergency-stopping a cooking run.</li>
+  <li><b>Signals.</b> <code>SIGINT</code> and <code>SIGTERM</code> are routed into the same stop
+  event, so <code>Ctrl+C</code> and a supervisor kill behave identically to <code>ESC</code>.</li>
+  <li><b>Camera watchdog.</b> If the trigger camera delivers no frame for 2&nbsp;s during a
+  vision stage, the runtime raises rather than silently holding the last action — a frozen
+  camera must never leave the arm mid-pour with no supervising perception.</li>
+</ul>
+
+<p>
+The stop event is checked at every loop tick <em>and</em> inside the policy rollout loop, so an
+<code>ESC</code> during an ACT rollout exits within one 33&nbsp;ms step. Every exit path then
+calls the same <code>_best_effort_safe_pose()</code>: ramp to the base pose over 2.5&nbsp;s,
+hold it briefly under the base-pose controller, and disconnect. The <code>finally</code> block
+releases the camera, destroys the preview windows, and disconnects the robot even if the safe
+ramp itself throws.
+</p>
+
+<div class="callout">
+<span class="co-title">Design note — the base pose is a contract</span>
+<p>
+The base pose (arm folded up and back, gripper nearly closed, clear of the pan) appears in the
+config as six joint values and is the single well-known configuration that every stage starts
+from and returns to. Stages therefore compose: the ACT policies were trained from
+demonstrations that begin at this pose, the waypoint sequences begin and end at it, and any
+fail-safe can target it unconditionally because it is collision-free from everywhere in the
+task workspace. A <code>BasePoseController</code> re-sends the pose at a rate-limited interval
+while idle — the STS3215s hold position on their own, but periodic refresh makes the hold robust
+to a dropped packet or a manually disturbed joint.
+</p>
+</div>

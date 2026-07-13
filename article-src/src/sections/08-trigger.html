@@ -1,0 +1,132 @@
+<h2 id="flip-trigger"><span class="secno">8</span>The Flip Trigger — Smoothing, Streaks, and the Confidence-Drop Path</h2>
+
+<p>
+The GRU emits a probability vector thirty times a second; the runtime needs a single, safe,
+irreversible boolean. Bridging that gap is a three-layer filter, and the third layer is the
+most interesting engineering decision in the perception stack.
+</p>
+
+<h3 id="ema">8.1&ensp;Layer 1 — exponential smoothing</h3>
+
+<p>
+Raw per-tick probabilities flicker: consecutive 16-frame windows differ by one frame, yet can
+disagree noticeably near a class boundary. The runtime smooths the probability vector with an
+exponential moving average before taking any argmax:
+</p>
+
+$$
+\bar{p}_t \;=\; \lambda\, \bar{p}_{t-1} + (1-\lambda)\, p_t,
+\qquad \lambda = 0.7,
+$$
+
+<p>
+whose step response reaches 63% of a sustained change after $-1/\ln\lambda \approx 2.8$
+inference ticks (roughly a tenth of a second) — fast enough to track cooking, slow enough to
+erase single-window flicker. The prediction consumed downstream is
+$\hat{y}_t = \arg\max_c \bar{p}_t[c]$ with confidence $\bar{p}_t[\hat{y}_t]$.
+</p>
+
+<h3 id="streak">8.2&ensp;Layer 2 — the ready streak</h3>
+
+<p>
+The primary trigger path is a debounced streak, structurally identical to the YOLO rule: the
+smoothed prediction must be <code>ready</code> for 3 consecutive inference ticks. Because the
+EMA already lowpasses the signal, a short streak suffices where the YOLO trigger needed 30
+frames. In the logged cook runs this path fired with smoothed confidences of 0.40–0.65 — modest
+numbers, which is expected: near the flip point the true state straddles the
+<code>almost_ready</code>/<code>ready</code> boundary, and the EMA blends across it.
+</p>
+
+<h3 id="conf-drop">8.3&ensp;Layer 3 — the almost-ready confidence drop</h3>
+
+<p>
+Relying on the <code>ready</code> class alone has a failure mode we hit repeatedly during
+bring-up: on some runs the classifier grows <em>very</em> confident in <code>almost_ready</code>
+and stays there — the smoothed distribution parks at
+$\bar{p}[\texttt{almost\_ready}] \approx 1.0$
+and the <code>ready</code> class never wins the argmax for three straight ticks, while the
+physical pancake quietly overcooks. But watching those runs revealed a usable signature: as
+bubbling peaks and fades, the model's <code>almost_ready</code> confidence <em>sags</em> —
+the clip stops looking like prototypical peak-bubbling. The information is in the derivative of
+the confidence, not the argmax. The runtime encodes exactly that:
+</p>
+
+<figure class="diagram" role="img" aria-label="State machine of the almost-ready confidence-drop trigger">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="dg-arrow"/>
+    </marker>
+  </defs>
+
+  <rect x="30" y="40" width="220" height="64" rx="10" class="dg-box"/>
+  <text x="140" y="66" text-anchor="middle" class="dg-text">WATCHING</text>
+  <text x="140" y="84" text-anchor="middle" class="dg-sub">pred = almost_ready?</text>
+
+  <rect x="320" y="40" width="220" height="64" rx="10" class="dg-box"/>
+  <text x="430" y="66" text-anchor="middle" class="dg-text">SATURATED</text>
+  <text x="430" y="84" text-anchor="middle" class="dg-sub">conf ≥ 1.00 · timing hold</text>
+
+  <rect x="610" y="40" width="220" height="64" rx="10" class="dg-box"/>
+  <text x="720" y="66" text-anchor="middle" class="dg-text">QUALIFIED</text>
+  <text x="720" y="84" text-anchor="middle" class="dg-sub">held ≥ 10 s at saturation</text>
+
+  <rect x="610" y="190" width="220" height="64" rx="10" class="dg-box-accent"/>
+  <text x="720" y="216" text-anchor="middle" class="dg-text">TRIGGER — flip now</text>
+  <text x="720" y="234" text-anchor="middle" class="dg-sub">conf dropped ≤ 0.90</text>
+
+  <line x1="250" y1="72" x2="320" y2="72" class="dg-edge" marker-end="url(#arrE)"/>
+  <text x="285" y="60" text-anchor="middle" class="dg-lbl">conf = 1.00</text>
+  <line x1="540" y1="72" x2="610" y2="72" class="dg-edge" marker-end="url(#arrE)"/>
+  <text x="575" y="60" text-anchor="middle" class="dg-lbl">10 s elapse</text>
+  <line x1="720" y1="104" x2="720" y2="190" class="dg-edge" marker-end="url(#arrE)"/>
+  <text x="728" y="150" class="dg-lbl">conf ≤ 0.90</text>
+
+  <!-- reset edges -->
+  <path d="M 430 104 C 430 160, 250 170, 150 110" fill="none" class="dg-edge" stroke-dasharray="4 3" marker-end="url(#arrE)"/>
+  <text x="300" y="166" text-anchor="middle" class="dg-lbl">pred leaves almost_ready → reset</text>
+</svg>
+<figcaption><span class="figno">Figure 8</span>The confidence-drop trigger as a state machine.
+Saturation (confidence pinned at 1.00, rounded to two decimals) must persist for 10&nbsp;s to
+<em>qualify</em> the pattern as genuine peak bubbling; only then does a sag to ≤ 0.90 fire the
+flip. Any excursion out of <code>almost_ready</code> resets the qualification — the drop only
+counts if it happens from a sustained plateau.</figcaption>
+</figure>
+
+<p>
+The rule's parameters encode two distrusts. The <b>10-second qualification</b> distrusts
+transient saturation: early in a cook the confidence can briefly touch 1.00 while bubbling ramps
+up, and a drop from a momentary peak means nothing. The <b>two-decimal rounding</b> of the
+confidence distrusts float jitter: "saturated" is defined as
+$\mathrm{round}(\bar{p}, 2) \ge 1.00$ and the drop as
+$\mathrm{round}(\bar{p}, 2) \le 0.90$, giving the comparison a built-in
+dead band of ten percentage points that EMA noise cannot cross by accident. The final trigger
+delivered to the stage machine is the disjunction of both paths:
+</p>
+
+$$
+\text{flip} \iff
+\underbrace{\big(\text{streak}(\hat{y}_t = \texttt{ready}) \ge 3\big)}_{\text{classifier is sure}}
+\;\lor\;
+\underbrace{\big(\text{qualified} \wedge \bar{p}_t[\texttt{almost\_ready}] \le 0.90\big)}_{\text{plateau decays}}
+$$
+
+<p>
+In the four logged cook waits, the streak path fired first every time — after watches ranging
+from 2&nbsp;m&nbsp;18&nbsp;s to 6&nbsp;m&nbsp;36&nbsp;s, at smoothed confidences between 0.40
+and 0.65 (pancakes, it turns out, vary a lot). The drop path
+is the safety net for the runs where the argmax never commits, and it converts the model's most
+common failure mode (overconfident <code>almost_ready</code>) into its own detector.
+</p>
+
+<div class="callout">
+<span class="co-title">Design note — the preview lies a little, on purpose</span>
+<p>
+The live preview window shows <code>almost_ready</code> whenever <code>ready</code> is predicted
+but the streak is still building. During bring-up we found the flickering label actively
+misleading — an operator sees "ready", the robot does nothing (correctly — the debounce is
+still counting), and the system looks broken. Displaying the <em>decision state</em> rather
+than the raw argmax makes the UI truthful about what the robot will actually do. The raw
+prediction is still logged every tick for offline analysis.
+</p>
+</div>

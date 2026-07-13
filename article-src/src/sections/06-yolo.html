@@ -1,0 +1,112 @@
+<h2 id="yolo"><span class="secno">6</span>Stopping the Pour — Batter Segmentation</h2>
+
+<p>
+The pour-stop decision needs one number per frame: <em>what fraction of the pan is covered by
+batter?</em> Our first attempt computed it classically — a reference-frame difference against
+the empty pan with a binary threshold (<code>measure_batter_area_1.py</code> survives in the
+vision repository as the fossil of this approach). It worked until it met reality: specular
+highlights on the non-stick coating, the moving pour stream, steam, and the slow color shift of
+batter as it heats all punch holes in background subtraction. Batter-vs-pan is a <em>semantic</em>
+distinction, so we moved to a learned segmentation model and never looked back.
+</p>
+
+<h3 id="labeling">6.1&ensp;SAM-assisted labeling</h3>
+
+<p>
+The labeling pipeline in <code>Panbot_vision</code> is built for speed rather than scale.
+Warped pan frames are captured during real pours; an interactive labeling tool loads a
+<strong>Segment Anything</strong> ViT-B checkpoint and lets the annotator place positive clicks
+on batter and negative clicks on pan; SAM proposes candidate masks, the tool keeps the
+highest-scoring one live on screen, and a keystroke saves it as a binary PNG aligned to the frame — including explicit all-black masks for
+"no batter" frames, which matter as hard negatives. A converter then binarizes each mask,
+extracts external contours, simplifies them with Douglas–Peucker (tolerance $0.002 \times$
+perimeter, components under 200&nbsp;px dropped), and emits normalized polygon labels in
+YOLO-seg format with an automatic 80/20 train/val split. A few clicks per frame replace
+per-pixel polygon tracing; a usable dataset for this one-class problem took an afternoon, not a
+week.
+</p>
+
+<h3 id="seg-model">6.2&ensp;Model and training</h3>
+
+<p>
+The segmentation model is an Ultralytics <strong>YOLOv8-seg</strong> fine-tuned from COCO
+weights on the single class <code>batter</code> at 640-px input (the training wrapper defaults
+to the nano variant and 80 epochs at batch 8; the deployed checkpoint is the run
+<code>batter_seg_local_v1</code>). This is deliberately the smallest model that solves the
+problem: one class, one pan, controlled lighting, and a hard 33&nbsp;ms per-frame budget shared
+with the motion loop. The training wrapper can pull the dataset from and push
+<code>best.pt</code> to the Hugging Face Hub, which is how the vision repo and the runtime repo
+exchange artifacts without sharing a filesystem.
+</p>
+
+<h3 id="trigger-rule">6.3&ensp;From masks to a trigger</h3>
+
+<p>
+At runtime, each warped frame passes through the model at confidence threshold 0.25. The trigger
+logic then reduces the prediction to one scalar and one counter. With $\mathcal{M}_t$ the
+<em>largest</em> predicted mask (upsampled to the warped resolution $W \times H$) at frame $t$:
+</p>
+
+$$
+r_t = \frac{\lvert \mathcal{M}_t \rvert}{W H},
+\qquad
+c_t = \begin{cases} c_{t-1} + 1 & \text{if } r_t \ge \tau \\ 0 & \text{otherwise} \end{cases},
+\qquad
+\text{trigger} \iff c_t \ge N,
+$$
+
+<p>
+with coverage threshold $\tau = 0.12$ and hold count $N = 30$ frames. Taking only the largest
+mask ignores stray droplets and the disconnected pour stream; the counter is a debounce:
+coverage must hold above threshold for one full second (30 frames at 30&nbsp;fps), and a single
+frame that dips below — a flicker of the mask edge, a bubble of the stream occluding the pool —
+resets it to zero. The one-second debounce also has a physical meaning: batter keeps spreading
+after it lands, so demanding sustained coverage measures the <em>settled</em> pool rather than a
+transient splash.
+</p>
+
+<figure>
+  <div class="fig-grid">
+    <div class="cell">
+      <img src="assets/yolo_warp_early.webp" alt="Warped pan view early in the pour: small green batter mask, ratio 0.087, hit counter 0 of 30" loading="lazy">
+      <div class="lbl"><b>Early</b> · ratio 0.087 &lt; τ · hit 0/30</div>
+    </div>
+    <div class="cell">
+      <img src="assets/yolo_warp_mid.webp" alt="Warped pan view as coverage crosses threshold: ratio 0.112 near threshold 0.120, hit counter 43 of 30, trigger true" loading="lazy">
+      <div class="lbl"><b>Trigger</b> · counter past 30 → fire</div>
+    </div>
+    <div class="cell">
+      <img src="assets/yolo_warp_late.webp" alt="Warped pan view after the pour stopped: settled pool, ratio 0.128, trigger latched" loading="lazy">
+      <div class="lbl"><b>Settled</b> · ratio 0.128 · pour stopped</div>
+    </div>
+  </div>
+  <figcaption><span class="figno">Figure 5</span>The live YOLO trigger view (real frames from
+  Video&nbsp;2, model overlay in green, telemetry in yellow). Left: the pool and the falling
+  stream are segmented but coverage is far below threshold. Center: the ratio has held above
+  threshold long enough to exhaust the 30-frame debounce — the moment the pour-stop interrupt
+  fires (highlighted in the demo edit). Right: after the bottle re-docks, the settled pool reads
+  a stable 0.128.</figcaption>
+</figure>
+
+<p>
+Across the five logged cook runs the trigger fired at measured ratios between 0.129 and 0.186 —
+past the 0.12 threshold by a margin, as expected, since the ratio keeps climbing during the
+debounce second. The 30-frame hold proved to be the load-bearing parameter: the module's
+built-in default is a stricter $\tau = 0.17$, and the deployment tuned it down to 0.12 for this
+pan and batter viscosity while relying on the debounce to reject transients. The README's
+troubleshooting table encodes the tuning grammar — fires too early: raise $\tau$ or $N$ or the
+model confidence; never fires: lower $\tau$, then audit the warp corners and checkpoint path
+before touching anything else.
+</p>
+
+<div class="callout">
+<span class="co-title">Implementation note — the trigger latches by design</span>
+<p>
+Strictly, the counter keeps counting past $N$ (the center panel of Figure&nbsp;5 reads
+43/30), but the runtime consumes only the first rising edge: the interrupt flips Stage&nbsp;1
+into the return sequence and the YOLO stepper is never consulted again. Keeping the trigger
+stateless-but-latched in the consumer, rather than in the model wrapper, means the same wrapper
+serves both the runtime and the offline evaluation scripts, which <em>do</em> want the raw
+per-frame signal.
+</p>
+</div>

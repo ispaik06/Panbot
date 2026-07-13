@@ -1,0 +1,69 @@
+<h2 id="results"><span class="secno">12</span>Results — End-to-End Runs</h2>
+
+<p>
+The system's output is a cooked, flipped, plated pancake with no human input between "start"
+and "done". Video&nbsp;1 (top of the article) shows the produced demonstration; Video&nbsp;5
+below is the unedited single-take counterpart. For the quantitative record, Table&nbsp;8
+reconstructs a complete instrumented run directly from its log file — every timestamp, trigger
+value, and step count below is copied from the log, not estimated. (This rehearsal run used
+shortened policy windows — 5&nbsp;s flip, 200&nbsp;s plate, 10&nbsp;s wait — while exercising
+the full pipeline; the shipped configuration runs 90/90 with a 30&nbsp;s wait.)
+</p>
+
+<div class="tbl-wrap">
+<table class="tbl-num">
+  <caption><span class="figno">Table 8</span>Timeline of a complete logged run
+  (<code>main_runtime_20260210_163726.log</code>), from process start to clean shutdown:
+  7&nbsp;m&nbsp;32&nbsp;s end to end, of which 2&nbsp;m&nbsp;56&nbsp;s is the perception-gated
+  cook wait.</caption>
+  <thead><tr><th>Clock</th><th>Δt</th><th>Event</th><th>Logged detail</th></tr></thead>
+  <tbody>
+    <tr><td>16:37:32</td><td>—</td><td>Stage 1 begins</td><td>robot + 4 cameras connected, trigger cam at 4K</td></tr>
+    <tr><td>16:37:52</td><td>20.3 s</td><td>Pour posture reached</td><td>10 waypoints, first ramp 5 s</td></tr>
+    <tr><td>16:38:08</td><td>15.2 s</td><td><b>YOLO trigger</b></td><td>ratio 0.186 ≥ 0.12 · hit 30/30 → pour interrupt</td></tr>
+    <tr><td>16:38:28</td><td>20.5 s</td><td>Bottle re-docked</td><td>11 return waypoints, 3 s un-tilt ramp</td></tr>
+    <tr><td>16:41:24</td><td>2 m 56 s</td><td><b>GRU trigger</b></td><td>ready · conf 0.581 · streak 3/3 · buffer 91/91</td></tr>
+    <tr><td>16:41:26</td><td>1.6 s</td><td>Policy 1 loaded</td><td>ACT flip checkpoint from Hub cache</td></tr>
+    <tr><td>16:41:31</td><td>5.0 s</td><td>Flip rollout ends</td><td>147 steps → 29.2 Hz measured</td></tr>
+    <tr><td>16:41:42</td><td>10.0 s</td><td>Inter-policy wait ends</td><td>base-pose hold while second side cooks</td></tr>
+    <tr><td>16:45:04</td><td>200.0 s</td><td>Plating rollout ends</td><td>5,867 steps → 29.3 Hz measured</td></tr>
+    <tr><td>16:45:05</td><td>1.0 s</td><td><b>Clean shutdown</b></td><td>ramp to base pose · “main_runtime finished OK ✅”</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+Across the four fully logged cook waits, the perception layer behaved consistently with its
+design: the YOLO trigger fired at coverage ratios of 0.129–0.186 (threshold 0.12 plus the
+climb during the one-second debounce), and the GRU streak path fired after waits of
+2&nbsp;m&nbsp;18&nbsp;s to 6&nbsp;m&nbsp;36&nbsp;s at smoothed confidences of 0.40–0.65. The
+spread in cook-wait duration is the strongest argument for the architecture — a fixed timer
+tuned to any one of those runs would have burned or undercooked the other three.
+</p>
+
+<figure class="hero-fig plain">
+  <div class="yt-embed" data-embed="h7nZ01oG__M" data-title="Panbot — fully autonomous, raw single-take footage" role="button" tabindex="0" aria-label="Play the raw footage video">
+    <img src="assets/yt_raw.webp" alt="Raw footage thumbnail: the Panbot cell mid-run, viewed from the front" loading="lazy">
+    <button class="yt-play" aria-hidden="true" tabindex="-1"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+    <span class="yt-badge">▶ Raw footage · single take, no cuts</span>
+  </div>
+  <figcaption><span class="figno">Video 5</span>The unedited evidence: one continuous take of
+  the full pipeline with no cuts and no resets, including the real-time cook wait. Where
+  Video&nbsp;1 is the produced summary, this is the experiment log in video form.</figcaption>
+</figure>
+
+<h3 id="qualitative">12.1&ensp;Qualitative observations</h3>
+
+<p>
+Three observations from running the system that the numbers do not capture. First, <b>the
+trigger architecture changes how failures feel</b>: when something goes wrong, the run does not
+degrade into flailing — it stalls at a stage boundary with the preview window showing exactly
+which condition is unmet, and the fix (nudge a threshold, re-click the corners) is usually
+config-level. Second, <b>the pour trigger is the quiet workhorse</b>: batter viscosity varies
+between mixes and over time as it settles, so identical pour durations produce meaningfully
+different pancakes — the coverage trigger absorbed this without retuning across sessions.
+Third, <b>chunked policies read as deliberate</b>: at 3.3&nbsp;s per committed chunk, the arm's
+behavior has a legible rhythm — approach, wedge, flip as distinct strokes — which made failures
+easy to attribute (a bad wedge angle versus a bad flick) and, frankly, makes the robot pleasant
+to watch.
+</p>

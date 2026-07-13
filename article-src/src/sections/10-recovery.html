@@ -1,0 +1,69 @@
+<h2 id="implicit-recovery"><span class="secno">10</span>Implicit Recovery</h2>
+
+<p>
+The most instructive behavior in the whole system was one we never programmed. During evaluation
+rollouts, when a flip landed the pancake half-folded against the pan rim, or the spatula lost
+the pancake mid-transfer, the ACT policies would frequently pause, re-approach, and try again —
+successfully. We call this <em>implicit recovery</em>: recovery behavior that emerges from the
+policy's training distribution rather than from any explicit failure detection or recovery
+logic. There is no "retry" branch anywhere in the code.
+</p>
+
+<figure>
+  <div class="fig-grid cols-2">
+    <div class="cell">
+      <video autoplay loop muted playsinline preload="metadata" poster="assets/task2_recovery_poster.jpg" src="assets/task2_recovery.mp4"></video>
+      <div class="lbl"><b>Flipping recovery</b> · re-wedge after a failed first attempt</div>
+    </div>
+    <div class="cell">
+      <video autoplay loop muted playsinline preload="metadata" poster="assets/task3_recovery_poster.jpg" src="assets/task3_recovery.mp4"></video>
+      <div class="lbl"><b>Plating recovery</b> · re-approach after losing the pancake</div>
+    </div>
+  </div>
+  <figcaption><span class="figno">Video 4</span>Unscripted recovery during policy rollouts. In
+  both clips the first manipulation attempt fails — the pancake sits badly or slips off the
+  spatula — and the policy re-aligns and completes the task within the same rollout, with no
+  external intervention and no recovery-specific code.</figcaption>
+</figure>
+
+<h3 id="why-recovery">10.1&ensp;Where the behavior comes from</h3>
+
+<p>
+Three ingredients make this work, and all three are ordinary. First, the <b>demonstrations
+contain recoveries</b>: teleoperating 111 and 120 episodes of a genuinely fiddly task means the
+human operator botched wedges and re-tried, slid pancakes back off rims, and chased misplaced
+pancakes across the pan — and all of it went into the dataset. A demonstrator who never fails
+teaches a policy that cannot recover; our failure rate as teleoperators turned out to be a
+feature. Second, the policy is <b>closed-loop at chunk granularity</b>: every 3.3&nbsp;s it
+re-observes through four cameras and predicts a fresh chunk conditioned on where the pancake
+<em>actually is</em>. A failed flip does not derail a plan, because there is no long-horizon
+plan — only the next chunk. Third, the <b>rollout window leaves room to fail</b>: 90 seconds is
+several attempts' worth of time for a skill whose nominal execution takes twenty, so a first
+attempt's failure is recoverable rather than terminal.
+</p>
+
+<h3 id="recovery-limits">10.2&ensp;What implicit recovery is not</h3>
+
+<p>
+We want to be precise about the claim, because this class of demo is easy to oversell. The
+policy recovers from perturbations <em>near its data manifold</em>: a pancake displaced by a
+few centimeters, a slipped grasp, a half-completed flip — states that resemble states a human
+demonstrator visited and fixed. It does not recover from a pancake on the floor, a spatula
+knocked out of its holder sideways, or any state that requires understanding <em>that</em>
+something failed rather than simply acting from the current observation. There is no success
+detector: a rollout that silently accomplished nothing still ends when its timer ends, and the
+runtime proceeds regardless (§13). Within those boundaries, though, the robustness is real,
+repeatable on camera, and — for a system this small — genuinely useful: it converts the many
+small execution imperfections of hobby servos and a floppy 3D-printed spatula from run-enders
+into recoverable noise.
+</p>
+
+<div class="callout warn">
+<span class="co-title">Safety note</span>
+<p>
+Implicit recovery is a robustness property, not a safety guarantee. The arm operates in a
+constrained tabletop cell around a hot cooking surface, and every run kept a human within reach
+of the kill switch (§3.3) and the griddle's power. Nothing in this section should be read as
+the policy "knowing" about the hazard.
+</p>
+</div>

@@ -1,0 +1,214 @@
+<h2 id="gru"><span class="secno">7</span>Knowing When to Flip — Temporal Cook-State Estimation</h2>
+
+<p>
+Deciding when a pancake is ready to flip is a fundamentally different perception problem from
+measuring batter coverage, and the difference dictates the architecture. A cooking pancake's
+readiness is written in its <em>dynamics</em>: bubbles nucleate at the surface, grow, pop, and
+leave open pores as the batter sets; the surface sheen dulls; the rim dries. A single frame is
+ambiguous — a still image of a bubbled surface cannot distinguish "bubbles actively forming"
+(too early) from "bubbles popped and set" (ready). So the estimator must watch a <em>clip</em>,
+not a frame.
+</p>
+
+<h3 id="gru-arch">7.1&ensp;Architecture: ResNet18 features, GRU dynamics</h3>
+
+<figure class="diagram" role="img" aria-label="ResNet18 plus GRU sequence classifier architecture and temporal sampling scheme">
+<svg viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="dg-arrow"/>
+    </marker>
+  </defs>
+
+  <!-- temporal sampling strip -->
+  <text x="30" y="34" class="dg-text">Rolling frame buffer — 91 frames ≈ 3.03 s @ 30 fps</text>
+  <g>
+    <rect x="30" y="46" width="800" height="34" rx="6" class="dg-box"/>
+    <!-- 16 sampled ticks at stride 6: positions 0,6,...,90 mapped to x=36..824 -->
+    <line x1="36.0" y1="46" x2="36.0" y2="80" class="dg-edge"/><line x1="88.4" y1="46" x2="88.4" y2="80" class="dg-edge"/><line x1="140.8" y1="46" x2="140.8" y2="80" class="dg-edge"/><line x1="193.2" y1="46" x2="193.2" y2="80" class="dg-edge"/><line x1="245.6" y1="46" x2="245.6" y2="80" class="dg-edge"/><line x1="298.0" y1="46" x2="298.0" y2="80" class="dg-edge"/><line x1="350.4" y1="46" x2="350.4" y2="80" class="dg-edge"/><line x1="402.8" y1="46" x2="402.8" y2="80" class="dg-edge"/><line x1="455.2" y1="46" x2="455.2" y2="80" class="dg-edge"/><line x1="507.6" y1="46" x2="507.6" y2="80" class="dg-edge"/><line x1="560.0" y1="46" x2="560.0" y2="80" class="dg-edge"/><line x1="612.4" y1="46" x2="612.4" y2="80" class="dg-edge"/><line x1="664.8" y1="46" x2="664.8" y2="80" class="dg-edge"/><line x1="717.2" y1="46" x2="717.2" y2="80" class="dg-edge"/><line x1="769.6" y1="46" x2="769.6" y2="80" class="dg-edge"/><line x1="822.0" y1="46" x2="822.0" y2="80" class="dg-edge"/>
+    <text x="36" y="96" class="dg-lbl">t − 90</text>
+    <text x="822" y="96" text-anchor="end" class="dg-lbl">t (newest)</text>
+    <text x="430" y="96" text-anchor="middle" class="dg-lbl">16 frames sampled at stride 6</text>
+  </g>
+
+  <!-- per-frame encoder -->
+  <line x1="430" y1="104" x2="430" y2="128" class="dg-edge" marker-end="url(#arrD)"/>
+  <rect x="240" y="128" width="380" height="48" rx="8" class="dg-box"/>
+  <text x="430" y="148" text-anchor="middle" class="dg-text">ResNet18 (ImageNet-pretrained) — shared per frame</text>
+  <text x="430" y="165" text-anchor="middle" class="dg-sub">224×224 warped crop → 512-d feature per frame</text>
+
+  <line x1="430" y1="176" x2="430" y2="200" class="dg-edge" marker-end="url(#arrD)"/>
+  <rect x="240" y="200" width="380" height="48" rx="8" class="dg-box"/>
+  <text x="430" y="220" text-anchor="middle" class="dg-text">GRU — hidden 256, 1 layer</text>
+  <text x="430" y="237" text-anchor="middle" class="dg-sub">sequence (16 × 512) → last hidden state</text>
+
+  <line x1="430" y1="248" x2="430" y2="272" class="dg-edge" marker-end="url(#arrD)"/>
+  <rect x="240" y="272" width="380" height="48" rx="8" class="dg-box-accent"/>
+  <text x="430" y="292" text-anchor="middle" class="dg-text">LayerNorm → Linear → softmax</text>
+  <text x="430" y="309" text-anchor="middle" class="dg-sub">p(not_ready) · p(almost_ready) · p(ready)</text>
+
+  <text x="430" y="345" text-anchor="middle" class="dg-lbl">≈ 11.8 M parameters total · fp16 autocast at inference</text>
+</svg>
+<figcaption><span class="figno">Figure 6</span>The cook-state estimator. A rolling buffer keeps
+the last 91 warped frames; every tick, 16 of them (newest included, stride 6 backwards) are
+encoded independently by a shared ResNet18 and consumed by a single-layer GRU whose final hidden
+state feeds a 3-way classification head.</figcaption>
+</figure>
+
+<p>
+The design puts the capacity where the signal is. A frozen-architecture ResNet18 handles
+<em>appearance</em> — pores, sheen, browning at the rim — while a deliberately small GRU
+(hidden size 256, one layer) handles <em>temporal evolution</em> over the 16-step feature
+sequence. The sampling scheme buys a long effective time horizon at low compute: with sequence
+length $T = 16$ and stride $s = 6$, the buffer requirement is
+</p>
+
+$$
+L \;=\; (T-1)\,s + 1 \;=\; 91 \text{ frames} \;\approx\; 3.03 \text{ s at } 30 \text{ fps},
+$$
+
+<p>
+so the model sees three seconds of bubble dynamics for the inference cost of 16 encoder passes.
+The frame indices are anchored to the newest frame ($t, t{-}6, \dots, t{-}90$), and the
+identical $(T, s)$ scheme is used to generate the training sequences — train/test skew in the
+temporal geometry is ruled out by construction.
+</p>
+
+<h3 id="gru-data">7.2&ensp;Dataset: 32 cooking runs, labeled by time segments</h3>
+
+<p>
+The training data is 32 complete real cooking runs recorded through the same 4K camera and the
+same warp. Rather than labeling frames, we labeled <em>time segments</em>: for each run, an
+annotations file gives frame ranges for <code>not_ready</code> (wet batter, bubbles forming),
+<code>almost_ready</code> (dense bubbling, surface beginning to set), and <code>ready</code>
+(bubbles popped, surface matte, flip window open). Each 16-frame training sequence inherits the
+label of the segment containing its <em>final</em> frame — the model's job is defined as "what
+is the state <em>now</em>, given the last three seconds", exactly matching its runtime use.
+</p>
+
+<div class="tbl-wrap">
+<table class="tbl-num">
+  <caption><span class="figno">Table 4</span>Cook-state dataset statistics. Frame counts from
+  the 96 annotated segments of <code>annotations.csv</code>; sequence counts are the rows of the
+  generated index files. The split assigns whole runs (24/4/4), so no cooking run contributes to
+  two splits.</caption>
+  <thead><tr><th></th><th>not_ready</th><th>almost_ready</th><th>ready</th><th>Total</th></tr></thead>
+  <tbody>
+    <tr><td>Labeled frames</td><td>33,711</td><td>17,415</td><td>13,259</td><td>64,385</td></tr>
+    <tr><td>Share</td><td>52.4%</td><td>27.0%</td><td>20.6%</td><td>—</td></tr>
+    <tr><td>Train sequences (24 runs)</td><td colspan="3"></td><td>30,188</td></tr>
+    <tr><td>Val sequences (4 runs)</td><td colspan="3"></td><td>7,551</td></tr>
+    <tr><td>Test sequences (4 runs)</td><td colspan="3"></td><td>7,737</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+The split deserves a paragraph, because it is where sequence datasets usually go wrong.
+Consecutive sequences from one run overlap by up to 15 of 16 frames; a random sequence-level
+split would put near-duplicates of training samples in the validation set and report a
+fantasy accuracy. The index generator instead splits at the <em>run</em> level, using a greedy
+assignment that balances the 0.8/0.1/0.1 ratio by sequence count (runs vary in length) while
+guaranteeing every label appears in every split, with a repair pass that moves runs from train
+if val or test ends up missing a class. The result: 24 train / 4 val / 4 test runs with zero
+overlap — validation measures generalization to <em>new pancakes</em>, not interpolation between
+neighboring frames.
+</p>
+
+<h3 id="gru-training">7.3&ensp;Training and what the curves admit</h3>
+
+<p>
+Training is standard supervised classification: cross-entropy, AdamW at $3{\times}10^{-4}$ with
+weight decay $10^{-4}$, batch 32, AMP, ImageNet-normalized 224×224 inputs, best checkpoint
+selected by validation macro-F1 (the class shares in Table&nbsp;4 make plain accuracy too
+forgiving of ignoring <code>ready</code>). The full TensorBoard history ships in the repository;
+Figure&nbsp;7 replots it.
+</p>
+
+<figure class="chart" role="img" aria-label="Training curves: macro F1 and loss for train and validation over 16 epochs">
+<svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- Panel A: macro-F1 -->
+  <g>
+    <text x="54" y="12" class="ch-title">Macro-F1 vs. epoch</text>
+    <line x1="54" y1="236" x2="404" y2="236" class="ch-axis"/>
+    <line x1="54" y1="16" x2="54" y2="236" class="ch-axis"/>
+    <line x1="54" y1="181" x2="404" y2="181" class="ch-grid"/>
+    <line x1="54" y1="126" x2="404" y2="126" class="ch-grid"/>
+    <line x1="54" y1="71" x2="404" y2="71" class="ch-grid"/>
+    <text x="48" y="240" text-anchor="end" class="ch-tick">0.6</text>
+    <text x="48" y="185" text-anchor="end" class="ch-tick">0.7</text>
+    <text x="48" y="130" text-anchor="end" class="ch-tick">0.8</text>
+    <text x="48" y="75" text-anchor="end" class="ch-tick">0.9</text>
+    <text x="48" y="22" text-anchor="end" class="ch-tick">1.0</text>
+    <text x="54" y="252" text-anchor="middle" class="ch-tick">1</text>
+    <text x="124" y="252" text-anchor="middle" class="ch-tick">4</text>
+    <text x="194" y="252" text-anchor="middle" class="ch-tick">7</text>
+    <text x="264" y="252" text-anchor="middle" class="ch-tick">10</text>
+    <text x="334" y="252" text-anchor="middle" class="ch-tick">13</text>
+    <text x="404" y="252" text-anchor="middle" class="ch-tick">16</text>
+    <polyline class="ch-l1" points="54,25 77.3,18 100.7,16.9 124,16 147.3,18.6 170.7,16.8 194,16.8 217.3,16.5 240.7,16.5 264,16 287.3,16 310.7,17.7 334,16.9 357.3,16.6 380.7,16.1 404,16"/>
+    <polyline class="ch-l2" points="54,185.8 77.3,140.3 100.7,113.3 124,144 147.3,152.2 170.7,150.4 194,122.1 217.3,194.8 240.7,137.7 264,119 287.3,137.6 310.7,182.5 334,109.4 357.3,163.6 380.7,117.1 404,116.4"/>
+    <circle cx="334" cy="109.4" r="4.5" class="ch-p2"><title>epoch 13 — best val macro-F1 0.830</title></circle>
+    <line x1="334" y1="109.4" x2="334" y2="236" class="ch-ref"/>
+    <text x="334" y="102" text-anchor="middle" class="ch-lbl ch-t2">best 0.830</text>
+    <text x="408" y="20" class="ch-lbl ch-t1">train</text>
+    <text x="408" y="120" class="ch-lbl ch-t2">val</text>
+  </g>
+  <!-- Panel B: loss -->
+  <g transform="translate(460,0)">
+    <text x="54" y="12" class="ch-title">Cross-entropy loss vs. epoch</text>
+    <line x1="54" y1="236" x2="404" y2="236" class="ch-axis"/>
+    <line x1="54" y1="16" x2="54" y2="236" class="ch-axis"/>
+    <line x1="54" y1="181" x2="404" y2="181" class="ch-grid"/>
+    <line x1="54" y1="126" x2="404" y2="126" class="ch-grid"/>
+    <line x1="54" y1="71" x2="404" y2="71" class="ch-grid"/>
+    <text x="48" y="240" text-anchor="end" class="ch-tick">0</text>
+    <text x="48" y="185" text-anchor="end" class="ch-tick">0.5</text>
+    <text x="48" y="130" text-anchor="end" class="ch-tick">1.0</text>
+    <text x="48" y="75" text-anchor="end" class="ch-tick">1.5</text>
+    <text x="48" y="22" text-anchor="end" class="ch-tick">2.0</text>
+    <text x="54" y="252" text-anchor="middle" class="ch-tick">1</text>
+    <text x="124" y="252" text-anchor="middle" class="ch-tick">4</text>
+    <text x="194" y="252" text-anchor="middle" class="ch-tick">7</text>
+    <text x="264" y="252" text-anchor="middle" class="ch-tick">10</text>
+    <text x="334" y="252" text-anchor="middle" class="ch-tick">13</text>
+    <text x="404" y="252" text-anchor="middle" class="ch-tick">16</text>
+    <polyline class="ch-l1" points="54,233.1 77.3,235.1 100.7,235.6 124,236 147.3,234.9 170.7,235.7 194,235.6 217.3,235.7 240.7,235.8 264,236 287.3,236 310.7,235 334,235.5 357.3,235.7 380.7,236 404,236"/>
+    <polyline class="ch-l2" points="54,32.9 77.3,125 100.7,126.6 124,107.1 147.3,89.4 170.7,92.3 194,89.7 217.3,123.7 240.7,113.7 264,127.5 287.3,73.6 310.7,157.7 334,151.7 357.3,113.9 380.7,116 404,123.2"/>
+    <text x="408" y="238" class="ch-lbl ch-t1">train</text>
+    <text x="408" y="126" class="ch-lbl ch-t2">val</text>
+  </g>
+</svg>
+<figcaption class="code-caption" style="text-align:center; margin-top:8px;"></figcaption>
+</figure>
+<figure style="margin-top:-1.2rem;">
+<figcaption><span class="figno">Figure 7</span>Training history, replotted from the TensorBoard
+event files shipped in the repository. Left: macro-F1 — training saturates at ≈1.0 within four
+epochs while validation oscillates between 0.67 and 0.83, peaking at epoch&nbsp;13 (the deployed
+checkpoint). Right: the corresponding losses. The gap is real overfitting and we report it as
+such: 24 training runs is a small world, and the model memorizes it. The deployed system
+compensates downstream with temporal smoothing and trigger hysteresis (§8) rather than
+pretending the classifier is better than it is.</figcaption>
+</figure>
+
+<div class="tbl-wrap">
+<table class="tbl-num">
+  <caption><span class="figno">Table 5</span>Validation metrics of the deployed checkpoint
+  (epoch 13): accuracy 0.871, macro-F1 0.830. The errors concentrate exactly where cooking is
+  genuinely ambiguous — the <code>almost_ready</code>/<code>ready</code> boundary.</caption>
+  <thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+  <tbody>
+    <tr><td>not_ready</td><td>0.903</td><td>1.000</td><td>0.949</td></tr>
+    <tr><td>almost_ready</td><td>0.840</td><td>0.748</td><td>0.791</td></tr>
+    <tr><td>ready</td><td>0.802</td><td>0.704</td><td>0.750</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+The structure of Table&nbsp;5 is the honest summary of the problem. <code>not_ready</code> is
+essentially solved — wet batter looks like nothing else. The two later classes blur into each
+other because the underlying process is continuous and the label boundary is a human judgment
+call made once per run during annotation. A per-frame classifier this uncertain would make an
+unusable trigger if consumed naively; the next section is about consuming it non-naively.
+</p>

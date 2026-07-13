@@ -1,0 +1,123 @@
+<h2 id="warp"><span class="secno">5</span>Top-View Normalization</h2>
+
+<p>
+Both perception models see the pan through the same preprocessing step: a fixed perspective
+warp that maps the pan region of the oblique 4K camera view onto an axis-aligned, top-down
+rectangle. This one transform does a surprising amount of work, and it is worth being precise
+about why it exists before describing the models it feeds.
+</p>
+
+<figure class="diagram" role="img" aria-label="Perspective warp geometry from camera quadrilateral to rectified top view">
+<svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="dg-arrow"/>
+    </marker>
+  </defs>
+
+  <!-- camera frame -->
+  <rect x="30" y="30" width="384" height="216" rx="6" class="dg-box"/>
+  <text x="42" y="52" class="dg-text">Camera frame · 3840×2160</text>
+
+  <!-- pan quadrilateral, scaled from real corners /10 with offset -->
+  <polygon points="188.3,89.3 341.0,100.3 365.0,245.3 51.7,207.3" fill="none" class="dg-edge" stroke-dasharray="none" stroke-width="1.8"/>
+  <circle cx="188.3" cy="89.3" r="4" class="dg-arrow"/>
+  <circle cx="341.0" cy="100.3" r="4" class="dg-arrow"/>
+  <circle cx="365.0" cy="245.3" r="4" class="dg-arrow"/>
+  <circle cx="51.7" cy="207.3" r="4" class="dg-arrow"/>
+  <text x="188" y="80" text-anchor="middle" class="dg-lbl">TL (1583, 593)</text>
+  <text x="345" y="92" class="dg-lbl">TR (3110, 703)</text>
+  <text x="371" y="260" text-anchor="end" class="dg-lbl">BR (3350, 2153)</text>
+  <text x="46" y="222" class="dg-lbl">BL (217, 1773)</text>
+  <text x="215" y="170" class="dg-sub">pan region (clicked once</text>
+  <text x="215" y="186" class="dg-sub">during calibration)</text>
+
+  <!-- arrow -->
+  <line x1="440" y1="150" x2="520" y2="150" class="dg-edge" marker-end="url(#arrC)"/>
+  <text x="480" y="136" text-anchor="middle" class="dg-lbl">H</text>
+  <text x="480" y="172" text-anchor="middle" class="dg-sub">getPerspectiveTransform</text>
+
+  <!-- warped frame -->
+  <rect x="550" y="60" width="282" height="180" rx="6" class="dg-box-accent"/>
+  <text x="562" y="84" class="dg-text">Warped top view</text>
+  <text x="562" y="100" class="dg-sub">W × H from corner spans</text>
+  <text x="691" y="160" text-anchor="middle" class="dg-sub">shared by YOLO and GRU;</text>
+  <text x="691" y="176" text-anchor="middle" class="dg-sub">pixels ≈ uniform pan area</text>
+  <circle cx="550" cy="60" r="4" class="dg-arrow"/>
+  <circle cx="832" cy="60" r="4" class="dg-arrow"/>
+  <circle cx="832" cy="240" r="4" class="dg-arrow"/>
+  <circle cx="550" cy="240" r="4" class="dg-arrow"/>
+  <text x="556" y="52" class="dg-lbl">(0,0)</text>
+  <text x="838" y="52" text-anchor="end" class="dg-lbl">(W−1, 0)</text>
+  <text x="838" y="258" text-anchor="end" class="dg-lbl">(W−1, H−1)</text>
+  <text x="556" y="258" class="dg-lbl">(0, H−1)</text>
+
+  <text x="430" y="308" text-anchor="middle" class="dg-sub">One 4-point click sequence (TL → TR → BR → BL) fixes the transform for the entire deployment.</text>
+</svg>
+<figcaption><span class="figno">Figure 4</span>The calibrated warp, drawn to scale from the
+actual <code>corners.json</code> shipped in the repository. The pan's image is a skewed
+quadrilateral in the oblique camera view; the homography $H$ maps it onto an axis-aligned
+rectangle whose size is derived from the measured corner spans.</figcaption>
+</figure>
+
+<h3 id="homography">5.1&ensp;The transform</h3>
+
+<p>
+A one-time calibration tool streams the trigger camera and lets the operator click the pan's
+four inner corners in TL→TR→BR→BL order; the pixel coordinates are saved to
+<code>corners.json</code>. At runtime, the source quadrilateral
+$\{(x_i, y_i)\}_{i=1}^{4}$ and the destination rectangle
+$\{(0,0), (W{-}1,0), (W{-}1,H{-}1), (0,H{-}1)\}$ determine the unique homography — eight degrees
+of freedom from four point correspondences — via <code>cv2.getPerspectiveTransform</code>, and
+each frame is resampled as
+</p>
+
+$$
+\begin{pmatrix} x' \\ y' \\ 1 \end{pmatrix}
+\;\sim\;
+H \begin{pmatrix} x \\ y \\ 1 \end{pmatrix},
+\qquad
+H = \begin{pmatrix} h_{11} & h_{12} & h_{13} \\ h_{21} & h_{22} & h_{23} \\ h_{31} & h_{32} & h_{33} \end{pmatrix},
+$$
+
+<p>
+where the output size is computed from the corner geometry itself — the width is the larger of
+the two horizontal edge lengths and the height the larger of the two vertical ones:
+</p>
+
+$$
+W = \max\big(\lVert \mathrm{BR}-\mathrm{BL} \rVert,\; \lVert \mathrm{TR}-\mathrm{TL} \rVert\big),
+\qquad
+H = \max\big(\lVert \mathrm{TR}-\mathrm{BR} \rVert,\; \lVert \mathrm{TL}-\mathrm{BL} \rVert\big).
+$$
+
+<p>
+With the shipped corners this yields a warped view of roughly 3156×1805 pixels — the pan fills
+the entire model input, at the camera's native resolution, with the background cropped away by
+construction.
+</p>
+
+<h3 id="why-warp">5.2&ensp;Why warp before inference</h3>
+
+<ul>
+  <li><b>It makes area mean area.</b> The pour-stop rule thresholds "fraction of the pan covered
+  by batter". In the oblique view, a pixel near the far rim subtends more pan surface than one
+  near the near rim, so raw mask area is a biased estimator that depends on <em>where</em> the
+  batter sits. In the rectified view the pan-to-pixel scale is approximately uniform and the
+  ratio $\text{mask px}/WH$ is a meaningful physical proxy.</li>
+  <li><b>It deletes nuisance variation.</b> Both models train and infer on pan-only crops:
+  no table, no arm base, no background chairs to overfit to. For the GRU, whose training set is
+  only 32 cooking runs, shrinking the input distribution to "the inside of this pan" is a large
+  effective data-efficiency win.</li>
+  <li><b>It decouples camera pose from the models.</b> If the camera shifts, recalibrating means
+  re-clicking four corners — not re-labeling data or retraining. The transform absorbs the
+  viewpoint; the models only ever see the canonical view. (The flip side, honestly: if the
+  camera shifts and nobody recalibrates, both models silently degrade — see §13.)</li>
+</ul>
+
+<p>
+Both trigger models apply the warp independently with per-model config (<code>use_warp</code>,
+optional fixed output size), but in deployment they share the same corners file, and the batch
+tooling in <code>Panbot_vision</code> applies the identical transform when preparing training
+data — the warp seen at training time is bit-for-bit the warp seen at inference time.
+</p>

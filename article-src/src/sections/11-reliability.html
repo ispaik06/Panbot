@@ -1,0 +1,67 @@
+<h2 id="reliability"><span class="secno">11</span>Reliability Engineering</h2>
+
+<p>
+A robot that touches a hot pan for ten minutes per run, unattended, accumulates reliability
+requirements that a benchtop demo never meets. Most of <code>main_runtime.py</code>'s bulk is
+not the stage logic of §3 but the scaffolding around it, and this section collects the pieces
+that earned their keep during bring-up.
+</p>
+
+<h3 id="failure-taxonomy">11.1&ensp;Failure taxonomy and mitigations</h3>
+
+<div class="tbl-wrap">
+<table>
+  <caption><span class="figno">Table 7</span>Failure modes encountered or designed against
+  during development, and where each mitigation lives. The two-camera-path architecture (§2)
+  makes the first column's diagnosis nearly mechanical.</caption>
+  <thead><tr><th>Failure</th><th>Symptom</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td>Trigger camera stalls</td><td>Stage never advances</td><td>2 s frame watchdog → abort + safe ramp</td></tr>
+    <tr><td>Segmentation flicker</td><td>Premature pour stop</td><td>30-frame hold counter; largest-mask-only rule</td></tr>
+    <tr><td>GRU argmax never commits</td><td>Pancake overcooks in WAIT_GRU</td><td>Confidence-drop trigger path (§8.3)</td></tr>
+    <tr><td>Operator panic / bad behavior</td><td>—</td><td>ESC from any stage, checked every 33 ms, exits via ramp not freeze</td></tr>
+    <tr><td>Arrow key ≠ emergency stop</td><td>Spurious aborts</td><td>ESC-sequence disambiguation with 20 ms lookahead</td></tr>
+    <tr><td>Policy ends in odd pose</td><td>Next stage starts from out-of-distribution state</td><td>Ramped return to the shared base pose after every stage</td></tr>
+    <tr><td>Config drift (edited waypoints)</td><td>Wrong-length sequences</td><td>Startup validation: exactly 10 out / 11 back, unknown joint keys rejected</td></tr>
+    <tr><td>LeRobot version skew</td><td>Import errors on camera config</td><td>Multi-path best-effort import of <code>OpenCVCameraConfig</code></td></tr>
+    <tr><td>Missing model files</td><td>Late crash mid-run</td><td>All paths (corners, YOLO, GRU) existence-checked before the robot moves</td></tr>
+    <tr><td>Any unhandled exception</td><td>—</td><td>Global handler: best-effort safe pose, then re-raise with full traceback in the log</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="config">11.2&ensp;One YAML to hold it all</h3>
+
+<p>
+Every number in this article — camera indices, thresholds, hold counts, EMA weight, ramp times,
+waypoint poses, policy repo ids, rollout durations — lives in a single
+<code>runtime.yaml</code>, normalized through a defaulting pass at load so that a sparse config
+still yields a fully-populated, type-coerced structure. Two consequences were worth the
+discipline. Tuning sessions never touched Python: adjusting the pour threshold between batters,
+or slowing the bottle un-tilt ramp, was a config edit visible in version control. And the config
+<em>is</em> the experiment record: since the log banner prints the loaded path, any logged run
+can be reproduced by pointing the runtime at the same file.
+</p>
+
+<h3 id="logging">11.3&ensp;Logs as the primary instrument</h3>
+
+<p>
+The runtime logs to terminal and a timestamped file simultaneously, one line per event, with
+the trigger payloads serialized inline. Every claim in §12 is read directly off these files —
+which is the point. A line like
+</p>
+
+<pre><code>[YOLO] TRIGGER ✅ info={'ratio': 0.1857, 'mask_area': 1057740.0,
+                        'hit_count': 30, 'hold_frames': 30, ...}
+[GRU]  TRIGGER ✅ info={'pred_label': 'ready', 'conf': 0.5806,
+                        'ready_streak': 3, 'buffer': 91, ...}</code></pre>
+
+<p>
+carries the entire decision context of a transition: not just <em>that</em> the trigger fired
+but the measured coverage, the debounce state, and the confidence it fired at. During tuning,
+diffing these payloads across runs replaced guesswork about thresholds with arithmetic; after
+tuning, they turned the demo videos into auditable experiments. The preview windows serve the
+same purpose live — the YOLO overlay and the GRU label render the trigger's internal state onto
+the camera stream (Figure&nbsp;5) — and both can be disabled with a keypress without touching
+the run, since drawing is strictly a side effect of, never an input to, the decision path.
+</p>

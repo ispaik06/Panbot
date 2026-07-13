@@ -1,0 +1,125 @@
+<h2 id="task1"><span class="secno">4</span>Task 1 — Deterministic Batter Pouring</h2>
+
+<p>
+Pouring is the one task in the pipeline where we deliberately chose <em>not</em> to learn.
+The batter bottle rests in a fixed cradle; the pan does not move; the grasp is the same every
+run. A scripted joint-space sequence executes this perfectly every time, is trivially
+inspectable, and — critically — can be <em>interrupted at an arbitrary point</em> by the
+perception trigger, which is much harder to guarantee for a learned policy mid-rollout. The
+adaptive part of pouring is not the motion; it is knowing when to stop, and that job belongs to
+the YOLO trigger (§6).
+</p>
+
+<figure>
+  <video autoplay loop muted playsinline preload="metadata" poster="assets/task1_pouring_poster.jpg" src="assets/task1_pouring.mp4"></video>
+  <figcaption><span class="figno">Video 2</span>Task 1 executing: the arm grasps the batter
+  bottle from its cradle, tilts it over the pan, and holds the pouring posture. The inset window
+  is the live YOLO view on the warped pan crop; when the segmented coverage crosses threshold
+  and holds, the runtime interrupts the pour and the arm re-docks the bottle.</figcaption>
+</figure>
+
+<h3 id="stepper">4.1&ensp;A non-blocking waypoint stepper</h3>
+
+<p>
+<code>Task1MotionStepper</code> executes a list of joint-space waypoints as an explicit
+state machine with two phases per waypoint — <code>RAMP</code> (linear interpolation from the
+current measured pose, §3.2) and <code>HOLD</code> (re-send the target for a dwell time) — and
+advances one <code>send_action</code> per 30&nbsp;Hz tick. Nothing blocks: the stepper is
+<em>stepped</em> by the main loop rather than running the sequence itself, which is what lets
+the YOLO trigger preempt it between any two ticks. The configured sequences are 10 waypoints
+out (approach → grasp → lift → tilt) and 11 back (un-tilt → travel → release → retreat), with
+the dwell time set to 10&nbsp;ms — effectively continuous motion through the waypoints.
+</p>
+
+<figure class="chart" role="img" aria-label="Joint trajectories across the ten pouring waypoints">
+<svg viewBox="0 0 660 210" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <!-- panel: shoulder_pan -->
+  <g transform="translate(5,18)">
+    <text x="10" y="-4" class="ch-title">shoulder_pan</text>
+    <text x="190" y="-4" text-anchor="end" class="ch-tick">−65.7 … −0.3</text>
+    <rect x="8" y="8" width="184" height="58" fill="none" class="ch-grid"/>
+    <polyline class="ch-l1" points="10,14.6 30,57.4 50,51.8 70,52.3 90,52.9 110,53.0 130,53.1 150,35.3 170,33.7 190,31.6"/>
+  </g>
+  <g transform="translate(225,18)">
+    <text x="10" y="-4" class="ch-title">shoulder_lift</text>
+    <text x="190" y="-4" text-anchor="end" class="ch-tick">−73.7 … 39.5</text>
+    <rect x="8" y="8" width="184" height="58" fill="none" class="ch-grid"/>
+    <polyline class="ch-l1" points="10,57.1 30,57.4 50,32.1 70,17.9 90,14.6 110,14.9 130,29.3 150,31.2 170,30.2 190,29.7"/>
+  </g>
+  <g transform="translate(445,18)">
+    <text x="10" y="-4" class="ch-title">elbow_flex</text>
+    <text x="190" y="-4" text-anchor="end" class="ch-tick">25.6 … 84.6</text>
+    <rect x="8" y="8" width="184" height="58" fill="none" class="ch-grid"/>
+    <polyline class="ch-l1" points="10,14.6 30,19.5 50,17.2 70,37.4 90,48.4 110,46.9 130,46.1 150,50.3 170,57.4 190,57.4"/>
+  </g>
+  <g transform="translate(5,120)">
+    <text x="10" y="-4" class="ch-title">wrist_flex</text>
+    <text x="190" y="-4" text-anchor="end" class="ch-tick">−72.8 … 50.4</text>
+    <rect x="8" y="8" width="184" height="58" fill="none" class="ch-grid"/>
+    <polyline class="ch-l1" points="10,14.6 30,14.7 50,46.1 70,57.3 90,57.3 110,57.4 130,45.7 150,39.7 170,39.5 190,39.5"/>
+  </g>
+  <g transform="translate(225,120)">
+    <text x="10" y="-4" class="ch-title">wrist_roll</text>
+    <text x="190" y="-4" text-anchor="end" class="ch-tick">−10.8 … 53.5</text>
+    <rect x="8" y="8" width="184" height="58" fill="none" class="ch-grid"/>
+    <polyline class="ch-l2" points="10,14.7 30,14.7 50,14.6 70,14.8 90,14.6 110,14.6 130,14.6 150,21.4 170,50.2 190,57.4"/>
+  </g>
+  <g transform="translate(445,120)">
+    <text x="10" y="-4" class="ch-title">gripper</text>
+    <text x="190" y="-4" text-anchor="end" class="ch-tick">0.7 … 73.2</text>
+    <rect x="8" y="8" width="184" height="58" fill="none" class="ch-grid"/>
+    <polyline class="ch-l2" points="10,57.4 30,57.4 50,32.0 70,31.9 90,14.6 110,47.2 130,47.2 150,47.2 170,47.2 190,47.2"/>
+  </g>
+</svg>
+<figcaption class="code-caption" style="text-align:center; margin-top:8px;"></figcaption>
+</figure>
+<figure style="margin-top:-1.2rem;">
+<figcaption><span class="figno">Figure 3</span>Normalized joint values across the ten waypoints
+of the pouring sequence (x-axis: waypoint index; each panel scaled to its own range, shown at
+top right). The story is legible directly from the config: <code>gripper</code> (orange) opens
+wide at waypoint&nbsp;5 and clamps to 18 at waypoint&nbsp;6 — the grasp — and
+<code>wrist_roll</code> (orange) stays constant until the final three waypoints, where it rolls
+from +53.5 to −10.8: the pour tilt. The sequence ends <em>in</em> the pouring posture and stays
+there until the YOLO trigger interrupts.</figcaption>
+</figure>
+
+<h3 id="ramp-overrides">4.2&ensp;Per-segment ramp times</h3>
+
+<p>
+A single global ramp speed cannot serve this sequence: the first move travels half the
+workspace from the folded base pose (want: slow), while the mid-sequence pours are short
+precision moves (want: brisk), and re-righting a bottle full of batter must not slosh (want:
+slow again). The config therefore supports per-waypoint ramp-time overrides keyed by target
+index:
+</p>
+
+<pre><code>task1_ramp_time_s: 1.0            # default per-waypoint ramp
+task1_pose_hold_s: 0.01           # effectively continuous
+task1_initial_ramp_overrides:
+  0: 5.0        # base pose → first waypoint: long travel, go slow
+  1: 1.0
+task1_return_ramp_overrides:
+  2: 3.0        # un-tilting the full bottle: slow to avoid slosh
+task1_return_to_base_ramp_time_s: 1.0</code></pre>
+
+<p>
+The run logs confirm the schedule to the millisecond: the first ramp takes 5.01&nbsp;s, ordinary
+waypoints tick by at 1.02–1.07&nbsp;s including the dwell, and return-waypoint&nbsp;3 — the
+bottle un-tilt — takes 3.01&nbsp;s. The stepper also validates sequence lengths at construction
+(10 out, 11 back) so that a config edit that drops a waypoint fails at startup instead of
+mid-pour.
+</p>
+
+<h3 id="interrupt">4.3&ensp;Interrupt semantics</h3>
+
+<p>
+When the coverage trigger fires, <code>interrupt_to_return()</code> switches the stepper's mode
+to <code>RETURN</code> and enters the first return waypoint's ramp <em>from the current measured
+pose</em> — mid-ramp, mid-hold, or in the terminal pouring posture, it does not matter. In the
+instrumented run of §12 the pour held its terminal posture for 15.2&nbsp;s of steady flow before
+the trigger fired; in a second logged run, 8.1&nbsp;s. That variation is the entire point of the
+architecture: the same fixed motion serves different batter amounts, temperatures, and flow
+rates because the <em>stop decision</em> floats free of the motion script. After the return
+sequence re-docks the bottle, the base-pose controller ramps the arm home over 1&nbsp;s and
+Stage&nbsp;2 begins.
+</p>

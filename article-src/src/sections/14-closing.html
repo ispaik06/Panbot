@@ -1,0 +1,32 @@
+<h2 id="closing"><span class="secno">14</span>Closing Thoughts</h2>
+
+<p>
+Panbot began as a simple question: could a hobby-class arm cook something real, unattended,
+start to finish? The answer turned out to hinge on almost nothing we expected. The manipulation
+— the part that looks hard in the video — was largely solved by existing tools: LeRobot's
+teleoperation pipeline and a well-understood imitation architecture, applied carefully. The part
+that consumed our engineering attention was <em>time</em>: knowing when there is enough batter,
+knowing when a pancake is ready, and building trigger logic honest enough to act on models that
+are only 83% right.
+</p>
+
+<p>
+Three lessons generalize beyond pancakes. <b>Match the tool to the sub-problem, not the
+project.</b> One scripted sequence, two learned policies, and two perception triggers is an
+unfashionable mixture, but each piece is the cheapest thing that solves its sub-problem, and
+the mixture is why the system is debuggable. <b>Design for the model you have, not the model
+you want.</b> The EMA, the streak debounce, and especially the confidence-drop trigger exist
+because the GRU is imperfect in a <em>structured</em> way; encoding that structure into the
+consumer bought more reliability than another month of training data would have.
+<b>Instrument first.</b> The trigger payloads in the logs and the live preview overlays were
+built before the first full run, and every tuning decision in this article traces back to them
+— a robot you can interrogate is a robot you can ship, even if only to your own kitchen.
+</p>
+
+<p>
+And there is something quietly satisfying about the final artifact: a machine that watches a
+pancake with two neural networks, waits with the patience only a machine has, and flips at the
+right moment for reasons you can read off a log file. Everything — runtime, vision pipeline,
+datasets, checkpoints — is public; we would be delighted to see it cook in someone else's
+kitchen.
+</p>

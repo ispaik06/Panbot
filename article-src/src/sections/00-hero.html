@@ -1,0 +1,85 @@
+<div class="eyebrow">Robot Learning · Perception-Triggered Autonomy · LeRobot SO-ARM101</div>
+
+<h1>Panbot: A Perception-Triggered Autonomous Pancake-Cooking Robot</h1>
+
+<p class="subtitle">
+An end-to-end cooking system on a low-cost 6-DOF arm that pours batter, waits for the
+pancake to cook, flips it, and plates it — fully autonomously. One trigger camera and two
+learned perception models decide <em>when</em> each stage should happen; a deterministic
+waypoint sequence and two ACT imitation policies decide <em>how</em>. Built on the LeRobot
+stack with YOLOv8 segmentation, a ResNet18+GRU cook-state estimator, and a fail-safe
+runtime orchestrator.
+</p>
+
+<div class="byline">
+  <div><div class="k">Authors</div><div class="v">Inseong Paik · <a href="https://github.com/NmDongQ">NmDongQ</a></div></div>
+  <div><div class="k">Published</div><div class="v">July 2026</div></div>
+  <div><div class="k">Code</div><div class="v"><a href="https://github.com/ispaik06/Panbot">Panbot</a> · <a href="https://github.com/ispaik06/Panbot_vision">Panbot_vision</a></div></div>
+  <div><div class="k">Stack</div><div class="v">Python · LeRobot · PyTorch · Ultralytics · OpenCV</div></div>
+</div>
+
+<figure class="hero-fig plain">
+  <div class="yt-embed" data-embed="SyGJ2h8aM98" data-title="Panbot demo — vision-triggered runtime (YOLO + GRU + ACT)" role="button" tabindex="0" aria-label="Play the Panbot demo video">
+    <img src="assets/yt_main.webp" alt="The Panbot workstation: SO-ARM101 arm with a 3D-printed spatula, electric griddle, batter dispenser, and a stack of finished pancakes" loading="eager">
+    <button class="yt-play" aria-hidden="true" tabindex="-1"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+    <span class="yt-badge">▶ Watch on YouTube · 100% autonomous</span>
+  </div>
+  <figcaption><span class="figno">Video 1</span>The full Panbot demonstration: batter pouring
+  stopped by a YOLO segmentation trigger, a GRU cook-state estimator deciding the flip moment,
+  and two ACT policies flipping and plating the pancake. Every stage transition in the video is
+  decided by perception, not by a timer. (Click to play; loads from YouTube.)</figcaption>
+</figure>
+
+<div class="abstract">
+<span class="co-title">Abstract</span>
+<p>
+This article documents <strong>Panbot</strong>, an autonomous pancake-cooking system my
+teammate and I built on the LeRobot <strong>SO-ARM101</strong> follower arm. Cooking is an
+unforgiving robotics benchmark: the medium (batter) is a liquid that sets irreversibly, the
+process (cooking) evolves on its own clock whether or not the robot is ready, and the
+manipulation (flipping a half-set pancake with a spatula) is contact-rich and hard to script.
+Our central design decision is a strict division of labor:
+<strong>perception decides when, control decides how</strong>. A single 4K trigger camera
+watches the pan through a calibrated perspective warp. During pouring, a YOLOv8 segmentation
+model measures batter coverage and stops the pour when the covered area ratio holds above
+threshold for a full second. During cooking, a ResNet18+GRU sequence classifier watches bubble
+dynamics over a 3-second temporal window and fires when the pancake is ready to flip — including
+through a deliberately engineered secondary trigger that detects the <em>decay</em> of the
+"almost ready" state rather than waiting for a confident "ready".
+</p>
+<p>
+The motions themselves use the cheapest tool that works at each stage. Batter pouring is a
+deterministic 10-waypoint joint-space sequence with per-segment ramp times — dispensing demands
+repeatability, not adaptability. Flipping and plating are <strong>ACT</strong> imitation
+policies trained on 111 and 120 teleoperated episodes (about 160k and 170k frames each, four
+camera views), which exhibit <em>implicit recovery</em>: when the pancake lands badly or the
+spatula slips, the policy re-aligns and retries without any explicit recovery logic. A
+30&nbsp;Hz runtime orchestrator connects everything with watchdogs, ramped safe-pose returns,
+and a keyboard kill switch that degrades gracefully from any stage. The system cooks a pancake
+end-to-end; this article walks through every design decision, every tuned number, and the
+failure modes that shaped them.
+</p>
+</div>
+
+<ul class="contrib">
+  <li><b>A perception-triggered runtime architecture.</b> One shared trigger camera and two
+  learned models gate all stage transitions; the policy observation cameras are kept strictly
+  separate. Stage logic, trigger debouncing, and fail-safe paths live in a single 30&nbsp;Hz
+  orchestrator (§3).</li>
+  <li><b>Metric batter measurement from a monocular camera.</b> A four-point perspective warp
+  normalizes the pan to a top-down view, making "fraction of pan covered" a stable, threshold-able
+  quantity for a YOLOv8-seg model — with a hold-to-trigger debounce that survives segmentation
+  flicker (§5–6).</li>
+  <li><b>Temporal cook-state estimation.</b> A ResNet18+GRU classifier over 16 frames sampled at
+  stride 6 (a 3.03&nbsp;s window) labels the pan as <code>not_ready</code> /
+  <code>almost_ready</code> / <code>ready</code>, trained on 32 fully annotated cooking runs with
+  a leakage-free run-level split (§7).</li>
+  <li><b>A confidence-drop trigger.</b> The flip moment is detected not only by the
+  <code>ready</code> class but by a qualified <em>drop</em> in <code>almost_ready</code>
+  confidence after sustained saturation — an empirical signature of bubble activity peaking and
+  fading (§8).</li>
+  <li><b>ACT policies with implicit recovery.</b> Two chunked transformer policies (chunk 100 at
+  30&nbsp;Hz) for flipping and plating, integrated to share one robot connection with the
+  orchestrator, and demonstrably able to recover from misplaced pancakes and slipped grasps
+  (§9–10).</li>
+</ul>

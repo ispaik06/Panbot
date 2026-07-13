@@ -1,0 +1,118 @@
+<h2 id="act"><span class="secno">9</span>Flipping and Plating — ACT Imitation Policies</h2>
+
+<p>
+Flipping a pancake with a spatula is everything the pouring task is not: contact-rich,
+tool-mediated, tolerance-critical, and impossible to waypoint. The spatula must wedge under a
+disc that is set on top and still soft underneath, at an attack angle shallow enough not to
+plow it, then execute a flick whose outcome depends on friction, batter weight, and where the
+pancake actually sits — which varies, because the pour trigger controls <em>amount</em>, not
+<em>placement</em>. This is the regime where imitation learning currently earns its complexity,
+and we used <strong>ACT</strong> (Action Chunking with Transformers), as implemented in LeRobot.
+</p>
+
+<figure>
+  <div class="fig-grid cols-2">
+    <div class="cell">
+      <video autoplay loop muted playsinline preload="metadata" poster="assets/task2_flipping_poster.jpg" src="assets/task2_flipping.mp4"></video>
+      <div class="lbl"><b>Task 2 — flipping</b> · ACT policy 1</div>
+    </div>
+    <div class="cell">
+      <video autoplay loop muted playsinline preload="metadata" poster="assets/task3_plating_poster.jpg" src="assets/task3_plating.mp4"></video>
+      <div class="lbl"><b>Task 3 — plating</b> · ACT policy 2</div>
+    </div>
+  </div>
+  <figcaption><span class="figno">Video 3</span>The two learned skills. Flipping: retrieve the
+  spatula from its holder, wedge under the pancake, flip, and re-park the tool. Plating:
+  retrieve the spatula again, extract the finished pancake from the pan, and deliver it to the
+  plate. Both are single continuous policy rollouts at 30&nbsp;Hz.</figcaption>
+</figure>
+
+<h3 id="act-data">9.1&ensp;Demonstrations</h3>
+
+<p>
+Each task has its own dataset, teleoperated with a leader arm in the standard LeRobot workflow
+and recorded at 30&nbsp;Hz with all four policy cameras. All demonstrations start from the base
+pose — the same base pose the runtime holds between stages — so the deployment-time initial
+condition is squarely inside the training distribution.
+</p>
+
+<div class="tbl-wrap">
+<table class="tbl-num">
+  <caption><span class="figno">Table 6</span>Demonstration datasets and policy training
+  configuration (both public on the Hugging Face Hub). Observation: 6-D joint state + four
+  640×480 RGB views; action: 6-D target joint positions.</caption>
+  <thead><tr><th></th><th>Task 2 · flipping</th><th>Task 3 · plating</th></tr></thead>
+  <tbody>
+    <tr><td>Episodes</td><td>111</td><td>120</td></tr>
+    <tr><td>Frames (30 fps)</td><td>161,933 (≈90 min)</td><td>169,983 (≈94 min)</td></tr>
+    <tr><td>Dataset</td><td><a href="https://huggingface.co/datasets/ispaik06/Panbot_task2_dataset_3">Panbot_task2_dataset_3</a></td><td><a href="https://huggingface.co/datasets/ispaik06/Panbot_task3_dataset_3">Panbot_task3_dataset_3</a></td></tr>
+    <tr><td>Checkpoint</td><td><a href="https://huggingface.co/ispaik06/act_panbot_task2_3">act_panbot_task2_3</a></td><td><a href="https://huggingface.co/ispaik06/act_panbot_task3_3">act_panbot_task3_3</a></td></tr>
+    <tr><td>Training steps</td><td colspan="2">70,000 · batch 8 · lr 1×10⁻⁵</td></tr>
+    <tr><td>Backbone / model dim</td><td colspan="2">ResNet18 per camera · d = 512, 8 heads</td></tr>
+    <tr><td>Transformer</td><td colspan="2">4 encoder + 1 decoder layers</td></tr>
+    <tr><td>CVAE latent</td><td colspan="2">32-D, VAE objective enabled</td></tr>
+    <tr><td>Chunk / executed steps</td><td colspan="2">100 / 100 (3.33 s per chunk at 30 Hz)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="act-mechanics">9.2&ensp;Why chunking fits this task</h3>
+
+<p>
+ACT trains a conditional VAE whose decoder predicts a <em>chunk</em> of $k$ future actions from
+the current observation, optimizing L1 reconstruction plus a KL term over a latent "style"
+variable $z$:
+</p>
+
+$$
+\mathcal{L} \;=\;
+\big\lVert a_{t:t+k} - \hat{a}_{t:t+k}(o_t, z) \big\rVert_1
+\;+\; \beta\, D_{\mathrm{KL}}\!\big(q(z \mid a_{t:t+k}, o_t)\,\Vert\, \mathcal{N}(0, I)\big).
+$$
+
+<p>
+With $k = 100$ and all 100 steps executed per prediction, the policy commits to
+3.3-second motion segments — approximately the natural granularity of this task's primitives
+(one approach, one wedge, one flick). Chunking suppresses the compounding-error jitter of
+step-by-step imitation and gives the rollout its visibly smooth, decisive quality; the cost is
+reactivity between chunk boundaries, a limitation we return to in §10 and §13. At deployment
+the latent is set to its prior mean, making the policy deterministic given the observations.
+</p>
+
+<h3 id="act-integration">9.3&ensp;Integration: policies as guests, not owners</h3>
+
+<p>
+In stock LeRobot examples, a policy script connects the robot, runs, and disconnects. That
+pattern breaks a multi-stage runtime — connecting the SO-ARM101 and four cameras takes seconds
+and re-homes the arm through unpredictable intermediate states. Panbot's
+<code>common_policy_runner</code> instead borrows the orchestrator's already-connected robot:
+it loads the pretrained config and weights from the Hub, reconstructs the observation/action
+processor pipelines and the feature spec from the live robot's own feature declarations, and
+then runs the standard predict-act loop —
+</p>
+
+<pre><code>obs   = robot.get_observation()               # joints + 4 cameras
+frame = build_dataset_frame(features, obs)    # to policy feature spec
+a     = predict_action(frame, policy, ...)    # ACT chunk head
+robot.send_action(action_processor((a, obs)))
+precise_sleep(dt - elapsed)                   # hold 30 Hz</code></pre>
+
+<p>
+— checking the shared stop event every step, so the keyboard kill switch preempts a rollout
+within 33&nbsp;ms. Rollout durations are configured, not learned: 90&nbsp;s per policy in the
+shipped config, with a 30&nbsp;s base-pose wait between them while the pancake's second side
+cooks. The measured loop rate over a logged 200-second rollout was 29.3&nbsp;Hz — the
+5,867-step log line is the receipt.
+</p>
+
+<div class="callout">
+<span class="co-title">Design note — one repo id is the whole deployment interface</span>
+<p>
+Swapping a policy means editing one line of <code>runtime.yaml</code>
+(<code>policies.policy1.repo_id</code>). Datasets, checkpoints, and the runtime exchange
+everything through the Hub, so the machine that trains (a GPU workstation) and the machine that
+cooks share no filesystem. The config also carries optional per-policy overrides — task prompt,
+observation rename map, dataset stats source — none of which this deployment needed, but which
+cost nothing to plumb through and make the runner reusable for the next robot.
+</p>
+</div>

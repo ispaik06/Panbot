@@ -1,0 +1,270 @@
+/* Scoped styles for the Chirpy blog-post version of the article.
+   Everything is namespaced under .cmpc; theme follows Chirpy's data-mode. */
+
+.cmpc {
+  --cm-bg: #ffffff;
+  --cm-bg-soft: #f6f7f9;
+  --cm-ink: #16181d;
+  --cm-muted: #5b616e;
+  --cm-faint: #8a8f9a;
+  --cm-rule: #e4e6ea;
+  --cm-rule-strong: #d4d7dd;
+  --cm-accent: #1a56c5;
+  --cm-accent-soft: rgba(26, 86, 197, 0.08);
+  --cm-warn: #b4540a;
+  --cm-serif: "Charter", "Bitstream Charter", Cambria, Georgia, serif;
+  --cm-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --cm-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html[data-mode="dark"] .cmpc {
+  --cm-bg: #101216;
+  --cm-bg-soft: #171a20;
+  --cm-ink: #e8eaef;
+  --cm-muted: #a0a6b2;
+  --cm-faint: #7c828e;
+  --cm-rule: #262a32;
+  --cm-rule-strong: #343945;
+  --cm-accent: #82a5f5;
+  --cm-accent-soft: rgba(130, 165, 245, 0.10);
+  --cm-warn: #e0954e;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-mode]) .cmpc,
+  html[data-mode="dark"] .cmpc {
+    --cm-bg: #101216;
+    --cm-bg-soft: #171a20;
+    --cm-ink: #e8eaef;
+    --cm-muted: #a0a6b2;
+    --cm-faint: #7c828e;
+    --cm-rule: #262a32;
+    --cm-rule-strong: #343945;
+    --cm-accent: #82a5f5;
+    --cm-accent-soft: rgba(130, 165, 245, 0.10);
+    --cm-warn: #e0954e;
+  }
+}
+
+/* ---------- lede + byline ---------- */
+
+.cmpc .subtitle {
+  font-size: 1.08rem;
+  line-height: 1.65;
+  color: var(--cm-muted);
+  margin: 0 0 1.6rem;
+}
+
+.cmpc .byline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.6rem 2.4rem;
+  padding: 0.95rem 0 1.05rem;
+  border-top: 1px solid var(--cm-rule);
+  border-bottom: 1px solid var(--cm-rule);
+  margin-bottom: 2rem;
+  font-family: var(--cm-sans);
+}
+.cmpc .byline .k {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--cm-faint);
+  margin-bottom: 0.15rem;
+}
+.cmpc .byline .v { font-size: 0.88rem; }
+
+/* ---------- headings ---------- */
+
+.cmpc h2 .secno, .cmpc h3 .secno {
+  font-family: var(--cm-mono);
+  font-weight: 500;
+  font-size: 0.8em;
+  color: var(--cm-faint);
+  margin-right: 0.65rem;
+}
+
+/* ---------- math ---------- */
+
+.cmpc .eq {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0.1rem;
+  margin: 0.2rem 0 1.1rem;
+}
+.cmpc .eq .katex-display { margin: 0.35em 0; }
+.cmpc .katex { font-size: 1.05em; }
+.cmpc .katex-error { color: #c02626; }
+
+/* ---------- figures ---------- */
+
+.cmpc figure { margin: 1.8rem 0 2rem; }
+
+.cmpc figure img, .cmpc figure video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--cm-rule);
+  box-shadow: none;
+}
+.cmpc figure.plain img, .cmpc figure.plain video { border: none; border-radius: 8px; }
+
+.cmpc figcaption {
+  font-family: var(--cm-sans);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--cm-muted);
+  margin-top: 0.65rem;
+  padding: 0 0.2rem;
+  text-align: left;
+}
+.cmpc .figno {
+  font-weight: 700;
+  color: var(--cm-ink);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  margin-right: 0.45rem;
+}
+
+.cmpc .fig-grid { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); margin: 0; }
+.cmpc .fig-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 640px) { .cmpc .fig-grid, .cmpc .fig-grid.cols-2 { grid-template-columns: 1fr; } }
+
+.cmpc .fig-grid .cell { min-width: 0; }
+.cmpc .fig-grid .cell video, .cmpc .fig-grid .cell img {
+  width: 100%; height: auto; display: block;
+  border-radius: 8px; border: 1px solid var(--cm-rule);
+  box-shadow: none;
+}
+.cmpc .fig-grid .cell .lbl {
+  font-family: var(--cm-sans);
+  font-size: 0.76rem;
+  text-align: center;
+  color: var(--cm-muted);
+  margin-top: 0.45rem;
+}
+.cmpc .fig-grid .cell .lbl b { color: var(--cm-ink); }
+
+.cmpc .hero-fig { margin: 0 0 2.2rem; }
+
+/* ---------- tables ---------- */
+
+.cmpc .tbl-wrap { overflow-x: auto; margin: 1.4rem 0 1.8rem; }
+
+.cmpc table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--cm-sans);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  background: transparent;
+}
+.cmpc caption {
+  caption-side: bottom;
+  text-align: left;
+  font-size: 0.78rem;
+  color: var(--cm-muted);
+  padding-top: 0.55rem;
+}
+.cmpc th {
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.76rem;
+  color: var(--cm-muted);
+  border-top: 2px solid var(--cm-rule-strong);
+  border-bottom: 1px solid var(--cm-rule-strong);
+  padding: 0.5rem 0.9rem 0.5rem 0;
+  white-space: nowrap;
+  background: transparent;
+}
+.cmpc td {
+  border-bottom: 1px solid var(--cm-rule);
+  padding: 0.5rem 0.9rem 0.5rem 0;
+  vertical-align: top;
+  background: transparent;
+}
+.cmpc tr { background: transparent !important; }
+.cmpc tr:last-child td { border-bottom: 2px solid var(--cm-rule-strong); }
+.cmpc .tbl-num td, .cmpc .tbl-num th { text-align: right; }
+.cmpc .tbl-num td:first-child, .cmpc .tbl-num th:first-child { text-align: left; }
+
+/* ---------- callouts + abstract ---------- */
+
+.cmpc .callout {
+  border: 1px solid var(--cm-rule);
+  border-left: 3px solid var(--cm-accent);
+  background: var(--cm-bg-soft);
+  border-radius: 0 10px 10px 0;
+  padding: 0.85rem 1.15rem;
+  margin: 1.5rem 0;
+  font-size: 0.95em;
+}
+.cmpc .callout > :last-child { margin-bottom: 0; }
+.cmpc .co-title {
+  display: block;
+  font-family: var(--cm-sans);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--cm-accent);
+  margin-bottom: 0.35rem;
+}
+.cmpc .callout.warn { border-left-color: var(--cm-warn); }
+.cmpc .callout.warn .co-title { color: var(--cm-warn); }
+
+.cmpc .abstract {
+  border: 1px solid var(--cm-rule);
+  background: var(--cm-bg-soft);
+  border-radius: 12px;
+  padding: 1.3rem 1.5rem 1rem;
+  margin: 0 0 1.3rem;
+}
+.cmpc .abstract .co-title { color: var(--cm-faint); }
+
+.cmpc .contrib { font-family: var(--cm-sans); font-size: 0.92rem; }
+.cmpc .contrib li { margin-bottom: 0.5rem; }
+
+/* ---------- inline SVG diagrams ---------- */
+
+.cmpc .diagram {
+  margin: 1.8rem 0 2rem;
+  padding: 1.1rem 0.7rem;
+  border: 1px solid var(--cm-rule);
+  border-radius: 10px;
+  background: var(--cm-bg-soft);
+  overflow-x: auto;
+}
+.cmpc .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+.cmpc .dg-box { fill: var(--cm-bg); stroke: var(--cm-rule-strong); }
+.cmpc .dg-box-accent { fill: var(--cm-accent-soft); stroke: var(--cm-accent); }
+.cmpc .dg-text { fill: var(--cm-ink); font-family: var(--cm-sans); font-size: 12.5px; font-weight: 600; }
+.cmpc .dg-sub { fill: var(--cm-muted); font-family: var(--cm-sans); font-size: 10.5px; font-weight: 400; }
+.cmpc .dg-lbl { fill: var(--cm-faint); font-family: var(--cm-mono); font-size: 10px; }
+.cmpc .dg-edge { stroke: var(--cm-faint); fill: none; stroke-width: 1.3; }
+.cmpc .dg-arrow { fill: var(--cm-faint); }
+.cmpc .dg-math { fill: var(--cm-ink); font-family: var(--cm-serif); font-style: italic; font-size: 12px; }
+
+/* ---------- misc ---------- */
+
+.cmpc .code-caption {
+  font-family: var(--cm-sans);
+  font-size: 0.74rem;
+  color: var(--cm-faint);
+  margin: -0.8rem 0 1.2rem;
+}
+
+.cmpc .refs { font-family: var(--cm-sans); font-size: 0.88rem; }
+.cmpc .refs li { margin-bottom: 0.7rem; }
+
+.cmpc .footer-note {
+  margin-top: 3.2rem;
+  padding-top: 1.3rem;
+  border-top: 1px solid var(--cm-rule);
+  font-family: var(--cm-sans);
+  font-size: 0.8rem;
+  color: var(--cm-faint);
+}

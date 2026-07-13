@@ -1,0 +1,102 @@
+<h2 id="introduction"><span class="secno">1</span>Introduction</h2>
+
+<p>
+Most tabletop manipulation demos share a convenient property: the world waits for the robot.
+A cube does not mind sitting on the table for another thirty seconds while the policy
+deliberates. Cooking removes that luxury. Once batter hits a hot pan, a physical process starts
+running on its own clock — the batter spreads, sets, bubbles, and eventually burns — and the
+robot's job is not merely to execute motions correctly but to execute them <em>at the right
+moment</em>. Pour too long and the pancake overflows the pan; flip too early and the half-liquid
+disc tears; flip too late and the bottom scorches. The task is a scheduling problem wearing a
+manipulation costume.
+</p>
+
+<p>
+Panbot is our attempt to take that problem seriously on hobby-grade hardware: a LeRobot
+<a href="https://github.com/TheRobotStudio/SO-ARM100">SO-ARM101</a> follower arm — six
+position-controlled Feetech STS3215 servos and 3D-printed links — a household electric griddle,
+a batter dispenser, and a 3D-printed spatula. Nothing in the hardware is exotic, which is
+precisely the point: the interesting engineering lives in <em>when</em> the robot acts, and that
+is a perception problem, not an actuation problem.
+</p>
+
+<h3 id="design-philosophy">1.1&ensp;Perception decides when, control decides how</h3>
+
+<p>
+The pancake workflow decomposes into three motion tasks separated by two <em>waiting
+decisions</em>:
+</p>
+
+<ol>
+  <li><b>Pour</b> batter into the pan — and decide <em>when there is enough</em>;</li>
+  <li>wait for the pancake to cook — and decide <em>when it is ready to flip</em>;</li>
+  <li><b>flip</b> it, let the second side cook, and <b>plate</b> it.</li>
+</ol>
+
+<p>
+The two decisions have nothing in common with the three motions. Deciding "enough batter" is a
+geometric measurement; deciding "ready to flip" is a judgment about the temporal texture of a
+cooking surface — bubbles forming, popping, and leaving pores as the batter sets. Neither
+decision benefits from being entangled with motor control, so Panbot does not entangle them: a
+single dedicated <em>trigger camera</em> watches the pan from above, two learned models turn its
+stream into boolean stage-transition events, and the motion controllers are swapped underneath
+whenever a trigger fires. Each motion task then uses the cheapest controller that does the job,
+summarized in Table&nbsp;1.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <caption><span class="figno">Table 1</span>Task decomposition. Each stage pairs a motion
+  controller with the perception event that terminates it. Only the stages whose difficulty
+  justifies learning use a learned policy.</caption>
+  <thead><tr><th>Stage</th><th>Motion controller</th><th>Terminated by</th><th>Why this choice</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1 · Batter pouring</td>
+      <td>Deterministic joint-waypoint stepper</td>
+      <td>YOLOv8-seg coverage trigger</td>
+      <td>Dispensing is a fixed, repeatable motion; precision and predictability beat adaptability</td>
+    </tr>
+    <tr>
+      <td>2 · Cook wait</td>
+      <td>Base-pose hold controller</td>
+      <td>GRU cook-state trigger</td>
+      <td>The robot should do nothing — reliably — while perception watches the pan</td>
+    </tr>
+    <tr>
+      <td>3 · Flipping</td>
+      <td>ACT policy (learned from 111 demos)</td>
+      <td>Configured rollout duration</td>
+      <td>Contact-rich, tool-mediated, hard to script; demonstrations capture the skill</td>
+    </tr>
+    <tr>
+      <td>4 · Plating</td>
+      <td>ACT policy (learned from 120 demos)</td>
+      <td>Configured rollout duration</td>
+      <td>Same: sliding a spatula under a floppy pancake resists waypoint scripting</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+This split has a second, subtler benefit: it makes failures diagnosable. When a stage transition
+misfires, the fault is in the trigger stack (camera, warp, model, threshold); when a motion goes
+wrong, the fault is in the controller stack (waypoints, policy, observation cameras). The two
+stacks share no state except the orchestrator's stage variable, and the troubleshooting table in
+the repository README is organized around exactly this boundary.
+</p>
+
+<h3 id="what-this-is-not">1.2&ensp;Scope, honestly stated</h3>
+
+<p>
+Panbot is a system-integration and perception-timing project, not a claim about general cooking
+autonomy. The workspace is fixed and instrumented for this one dish; the perception models are
+trained on this pan, this batter, and this kitchen's lighting; the ACT rollouts run for a
+configured duration rather than until a detected success. §13 catalogs these limitations
+without cosmetics. What the project does demonstrate is that with careful decomposition, a
+completely autonomous multi-stage cooking pipeline — liquid handling, process monitoring, and
+contact-rich manipulation — fits on a 3D-printed arm and a single GPU, and that the
+perception-triggered architecture holds up end-to-end in unedited runs (<a
+href="https://youtu.be/h7nZ01oG__M">raw single-take footage</a>).
+</p>

@@ -1,0 +1,196 @@
+<h2 id="system"><span class="secno">2</span>System Architecture</h2>
+
+<p>
+The system is organized around one invariant: <em>the camera that decides is never the camera
+that acts</em>. A single high-resolution trigger camera feeds the two perception models that gate
+stage transitions; four separate low-resolution cameras feed the ACT policies their multi-view
+observations. The two paths never mix — a trigger-camera problem shows up as a stage that never
+advances, a policy-camera problem shows up as bad actions, and neither can masquerade as the
+other. Figure&nbsp;1 shows the full dataflow.
+</p>
+
+<figure class="diagram" role="img" aria-label="Panbot system architecture: trigger perception path, runtime orchestration, and execution path">
+<svg viewBox="0 0 860 620" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="dg-arrow"/>
+    </marker>
+  </defs>
+
+  <!-- Band 1: trigger perception -->
+  <rect x="20" y="16" width="820" height="150" rx="12" class="dg-box" stroke-dasharray="4 4"/>
+  <text x="40" y="42" class="dg-text">Trigger perception</text>
+  <text x="40" y="59" class="dg-sub">one shared camera · decides when</text>
+  <text x="836" y="42" text-anchor="end" class="dg-lbl">frame → warp → model → boolean trigger</text>
+
+  <rect x="40" y="86" width="170" height="56" rx="8" class="dg-box"/>
+  <text x="125" y="108" text-anchor="middle" class="dg-text">Trigger camera</text>
+  <text x="125" y="124" text-anchor="middle" class="dg-sub">3840×2160 @ 30 fps · MJPG</text>
+  <text x="125" y="137" text-anchor="middle" class="dg-lbl">vision.cam_index = 8</text>
+
+  <rect x="240" y="86" width="150" height="56" rx="8" class="dg-box"/>
+  <text x="315" y="108" text-anchor="middle" class="dg-text">Perspective warp</text>
+  <text x="315" y="124" text-anchor="middle" class="dg-sub">4-corner homography</text>
+  <text x="315" y="137" text-anchor="middle" class="dg-lbl">corners.json</text>
+
+  <rect x="430" y="76" width="180" height="40" rx="8" class="dg-box"/>
+  <text x="520" y="93" text-anchor="middle" class="dg-text">YOLOv8-seg</text>
+  <text x="520" y="107" text-anchor="middle" class="dg-sub">batter coverage ratio</text>
+
+  <rect x="430" y="122" width="180" height="40" rx="8" class="dg-box"/>
+  <text x="520" y="139" text-anchor="middle" class="dg-text">ResNet18 + GRU</text>
+  <text x="520" y="153" text-anchor="middle" class="dg-sub">cook state · 16-frame window</text>
+
+  <rect x="650" y="76" width="170" height="40" rx="8" class="dg-box-accent"/>
+  <text x="735" y="93" text-anchor="middle" class="dg-text">Pour-stop trigger</text>
+  <text x="735" y="107" text-anchor="middle" class="dg-sub">ratio ≥ 0.12 · 30 frames</text>
+
+  <rect x="650" y="122" width="170" height="40" rx="8" class="dg-box-accent"/>
+  <text x="735" y="139" text-anchor="middle" class="dg-text">Flip trigger</text>
+  <text x="735" y="153" text-anchor="middle" class="dg-sub">ready streak ∨ conf. drop</text>
+
+  <line x1="210" y1="114" x2="240" y2="114" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="390" y1="106" x2="430" y2="96" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="390" y1="124" x2="430" y2="142" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="610" y1="96" x2="650" y2="96" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="610" y1="142" x2="650" y2="142" class="dg-edge" marker-end="url(#arrA)"/>
+
+  <!-- Band 2: orchestration -->
+  <rect x="20" y="200" width="820" height="180" rx="12" class="dg-box" stroke-dasharray="4 4"/>
+  <text x="40" y="226" class="dg-text">Runtime orchestration — main_runtime.py</text>
+  <text x="40" y="243" class="dg-sub">single process · 30 Hz stage loop</text>
+  <text x="836" y="226" text-anchor="end" class="dg-lbl">stage machine + fail-safes</text>
+
+  <rect x="40" y="262" width="180" height="52" rx="8" class="dg-box"/>
+  <text x="130" y="283" text-anchor="middle" class="dg-text">Task1MotionStepper</text>
+  <text x="130" y="298" text-anchor="middle" class="dg-sub">waypoint ramp/hold · pouring</text>
+
+  <rect x="250" y="262" width="170" height="52" rx="8" class="dg-box"/>
+  <text x="335" y="283" text-anchor="middle" class="dg-text">BasePoseController</text>
+  <text x="335" y="298" text-anchor="middle" class="dg-sub">hold + ramp-to-target</text>
+
+  <rect x="450" y="262" width="180" height="52" rx="8" class="dg-box"/>
+  <text x="540" y="283" text-anchor="middle" class="dg-text">Policy runner</text>
+  <text x="540" y="298" text-anchor="middle" class="dg-sub">ACT flip · ACT plate</text>
+
+  <rect x="660" y="262" width="160" height="52" rx="8" class="dg-box-accent"/>
+  <text x="740" y="283" text-anchor="middle" class="dg-text">Fail-safes</text>
+  <text x="740" y="298" text-anchor="middle" class="dg-sub">ESC · watchdog · safe pose</text>
+
+  <line x1="220" y1="288" x2="250" y2="288" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="420" y1="288" x2="450" y2="288" class="dg-edge" marker-end="url(#arrA)"/>
+
+  <text x="130" y="345" text-anchor="middle" class="dg-lbl">Stage 1: pour + YOLO gate</text>
+  <text x="335" y="345" text-anchor="middle" class="dg-lbl">Stage 2: hold + GRU gate</text>
+  <text x="540" y="345" text-anchor="middle" class="dg-lbl">Stages 3–4: rollouts</text>
+  <text x="740" y="345" text-anchor="middle" class="dg-lbl">any stage → base pose</text>
+
+  <!-- triggers flow down into orchestrator -->
+  <line x1="735" y1="116" x2="735" y2="122" class="dg-edge"/>
+  <line x1="130" y1="166" x2="130" y2="262" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="335" y1="166" x2="335" y2="262" class="dg-edge" marker-end="url(#arrA)"/>
+  <text x="138" y="215" class="dg-lbl" transform="rotate(90 138 215)"></text>
+
+  <!-- Band 3: execution -->
+  <rect x="20" y="414" width="820" height="180" rx="12" class="dg-box" stroke-dasharray="4 4"/>
+  <text x="40" y="440" class="dg-text">Execution &amp; policy observation</text>
+  <text x="40" y="457" class="dg-sub">LeRobot robot bus · decides how</text>
+  <text x="836" y="440" text-anchor="end" class="dg-lbl">send_action / get_observation @ 30 Hz</text>
+
+  <rect x="40" y="476" width="260" height="56" rx="8" class="dg-box"/>
+  <text x="170" y="498" text-anchor="middle" class="dg-text">SO-ARM101 follower</text>
+  <text x="170" y="514" text-anchor="middle" class="dg-sub">6 × Feetech STS3215 · /dev/ttyACM0</text>
+  <text x="170" y="527" text-anchor="middle" class="dg-lbl">shoulder ×2 · elbow · wrist ×2 · gripper</text>
+
+  <rect x="340" y="476" width="240" height="56" rx="8" class="dg-box"/>
+  <text x="460" y="498" text-anchor="middle" class="dg-text">Policy cameras ×4</text>
+  <text x="460" y="514" text-anchor="middle" class="dg-sub">left · right · global · wrist</text>
+  <text x="460" y="527" text-anchor="middle" class="dg-lbl">640×480 @ 30 fps · MJPG</text>
+
+  <rect x="620" y="476" width="200" height="56" rx="8" class="dg-box"/>
+  <text x="720" y="498" text-anchor="middle" class="dg-text">LeRobot processors</text>
+  <text x="720" y="514" text-anchor="middle" class="dg-sub">obs build → policy → action map</text>
+
+  <line x1="580" y1="504" x2="620" y2="504" class="dg-edge" marker-end="url(#arrA)"/>
+  <line x1="540" y1="314" x2="540" y2="476" class="dg-edge" marker-end="url(#arrA)"/>
+  <text x="548" y="400" class="dg-lbl">actions ↓ · observations ↑</text>
+  <line x1="170" y1="476" x2="170" y2="380" class="dg-edge" marker-end="url(#arrA)"/>
+  <text x="60" y="400" class="dg-lbl">joint commands</text>
+</svg>
+<figcaption><span class="figno">Figure 1</span>Panbot's three-band architecture. The trigger
+perception band converts the shared 4K camera stream into two boolean events; the orchestration
+band swaps motion controllers when those events fire; the execution band is the LeRobot robot
+bus, which the ACT policies observe through four dedicated cameras. The trigger path and the
+policy observation path share no hardware.</figcaption>
+</figure>
+
+<h3 id="hardware">2.1&ensp;Hardware</h3>
+
+<p>
+The arm is the standard LeRobot SO-ARM101 follower: six Feetech STS3215 serial-bus servos in a
+3D-printed structure, driven over a single USB serial port. Around it we built the cooking cell
+visible in Video&nbsp;1: an electric griddle pan, a squeeze-bottle batter dispenser resting in a
+3D-printed cradle at a known pose, a 3D-printed spatula parked in a holder bowl, and a plating
+target. Every fixture has a fixed, calibrated location — Task&nbsp;1's waypoints and the ACT
+policies' demonstrations all assume this cell layout. The five cameras are enumerated in
+Table&nbsp;2.
+</p>
+
+<div class="tbl-wrap">
+<table class="tbl-num">
+  <caption><span class="figno">Table 2</span>Camera inventory from <code>runtime.yaml</code>.
+  The trigger camera runs at 4K so that the warped pan crop retains enough resolution for
+  segmentation; the policy cameras run at VGA because ACT resizes its inputs anyway and four
+  simultaneous MJPG streams must share USB bandwidth.</caption>
+  <thead><tr><th>Camera</th><th>Index</th><th>Resolution</th><th>Consumer</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>Trigger</td><td>8</td><td>3840×2160 @ 30</td><td>YOLOv8-seg + GRU</td><td>Stage transitions</td></tr>
+    <tr><td>Right</td><td>2</td><td>640×480 @ 30</td><td>ACT policies</td><td>Right workspace view</td></tr>
+    <tr><td>Left</td><td>6</td><td>640×480 @ 30</td><td>ACT policies</td><td>Left workspace view</td></tr>
+    <tr><td>Global</td><td>4</td><td>640×480 @ 30</td><td>ACT policies</td><td>Overview of the cell</td></tr>
+    <tr><td>Wrist</td><td>0</td><td>640×480 @ 30</td><td>ACT policies</td><td>Eye-in-hand close-up</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="rates">2.2&ensp;Rates and timing</h3>
+
+<p>
+Everything in the runtime is deliberately pinned to one clock. The main loop, the camera
+streams, and the policy rollouts all run at 30&nbsp;Hz (<code>task.hz</code> =
+<code>vision.fps</code> = <code>policy_fps</code> = 30), so one loop tick consumes exactly one
+camera frame and emits at most one robot action. This alignment is not cosmetic: trigger
+debounce counts are specified in <em>frames</em>, so keeping frames and control ticks 1:1 makes
+"30 frames of stability" mean exactly one second of wall-clock stability, and makes log
+timestamps directly comparable across perception and control events.
+</p>
+
+<div class="tbl-wrap">
+<table class="tbl-num">
+  <caption><span class="figno">Table 3</span>Nominal and measured execution rates. Measured
+  values are from the runtime logs of an instrumented end-to-end run (§12): the policy loop held
+  29.2–29.3&nbsp;Hz against the 30&nbsp;Hz target, including inference and camera reads.</caption>
+  <thead><tr><th>Loop</th><th>Nominal</th><th>Measured</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Main stage loop</td><td>30 Hz</td><td>frame-locked</td><td>sleeps to a fixed 33.3 ms period</td></tr>
+    <tr><td>YOLO trigger inference</td><td>every frame</td><td>30 Hz</td><td>640-px input, single class</td></tr>
+    <tr><td>GRU trigger inference</td><td>every frame</td><td>≈30 Hz</td><td>after a 91-frame warm-up buffer</td></tr>
+    <tr><td>ACT policy rollout</td><td>30 Hz</td><td>29.2–29.3 Hz</td><td>147 steps / 5.03 s · 5867 steps / 200.0 s</td></tr>
+    <tr><td>Base-pose hold refresh</td><td>every 10 ms gate</td><td>30 Hz effective</td><td>rate-limited inside the 30 Hz tick</td></tr>
+    <tr><td>Camera watchdog</td><td>2.0 s timeout</td><td>—</td><td>aborts the run if frames stop</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout">
+<span class="co-title">Design note — why the trigger camera is not a policy camera</span>
+<p>
+It is tempting to reuse the 4K overhead stream as a fifth policy view, or to reuse a policy
+camera for triggering. Both couplings are traps. The trigger models need the warped pan crop at
+high resolution and are useless during manipulation (the arm occludes the pan); the policies
+need exactly the camera poses they were trained with and would be perturbed by a view change.
+Keeping the paths disjoint also means the trigger camera can be released entirely before the
+policy stages begin — <code>main_runtime</code> closes it after the GRU fires, freeing USB
+bandwidth for the four policy streams.
+</p>
+</div>

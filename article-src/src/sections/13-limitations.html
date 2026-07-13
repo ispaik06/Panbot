@@ -1,0 +1,80 @@
+<h2 id="limitations"><span class="secno">13</span>Limitations and Future Work</h2>
+
+<p>
+Everything below is a real limitation of the system as built. We list them in decreasing order
+of how much they would bite a user who tried to reproduce the results.
+</p>
+
+<h3 id="lim-generalization">13.1&ensp;The perception models know one kitchen</h3>
+
+<p>
+Both trigger models are trained on this pan, this batter recipe, this camera, and this room's
+lighting. The GRU's training curves (Figure&nbsp;7) show unambiguous overfitting — training
+macro-F1 saturates at 1.0 by epoch four while validation oscillates around 0.75–0.83 — and the
+honest reading is that 24 training runs cannot constrain an 11.8M-parameter model; the run-level
+split keeps the <em>measurement</em> honest, not the model general. Val macro-F1 of 0.830 is
+workable for a debounced trigger but would not survive a different pan coating or a window-lit
+kitchen without retraining. The same is true, more mildly, for the single-class YOLO. Scaling
+the cook-run corpus (recording is cheap; annotation is 96 segment boundaries per 32 runs) and
+adding augmentation across lighting are the obvious first steps.
+</p>
+
+<h3 id="lim-open-loop">13.2&ensp;The stage sequence is open-loop above the triggers</h3>
+
+<p>
+Perception decides <em>when</em> stages advance, but nothing verifies that a stage
+<em>succeeded</em>. The flip rollout ends on a timer whether or not the pancake flipped; plating
+ends whether or not the pancake reached the plate; there is no re-entry, no retry at the stage
+level, and no final "is there a pancake on the plate" check. Implicit recovery (§10) papers
+over small failures within a rollout, but a categorical failure — a pancake dropped outside all
+camera views — sails through to a cheerful clean shutdown. A success classifier per stage
+(the trigger-camera infrastructure would carry one; the plating stage even re-exposes the pan
+to it) is the highest-leverage missing component, and would also enable multi-pancake
+scheduling, which the single-shot stage machine currently cannot express.
+</p>
+
+<h3 id="lim-calibration">13.3&ensp;Calibration is a single point of failure</h3>
+
+<p>
+The four warp corners are calibrated once and trusted forever. A bumped tripod silently shifts
+the warp; the models then see a distorted pan and degrade without any error being raised —
+during development this was our single most common "mystery failure", always fixed by
+re-clicking four corners. The trigger thresholds encode similar deployment-specific tuning
+($\tau$ went from a default 0.17 to 0.12 for this batter; the 10&nbsp;s/0.90 drop-trigger
+constants were hand-fit to observed confidence traces). None of this is self-checking. A
+startup sanity pass — projecting the corners back onto the live frame and demanding operator
+confirmation, plus telemetry that flags trigger statistics drifting outside historical bands —
+would convert silent degradation into loud degradation, which is most of the battle.
+</p>
+
+<h3 id="lim-hardware">13.4&ensp;Hardware ceilings</h3>
+
+<p>
+The SO-ARM101 is position-controlled with no force or torque sensing: the spatula wedge relies
+on the compliance of a 3D-printed tool and the servos' tolerance of brief overload, not on
+measured contact. The policies compensate by having learned motions that <em>usually</em> avoid
+jamming, but a firmer pancake or a warped pan surface changes the contact physics in ways the
+system cannot feel. Kinematically, one 6-DOF arm bounds the achievable workspace and rules out
+bimanual strategies (stabilizing the pan while flipping). And the whole perception stack
+plus two ACT policies assume a CUDA GPU adjacent to the griddle — modest hardware by robot
+learning standards, but not nothing for a kitchen appliance.
+</p>
+
+<h3 id="lim-future">13.5&ensp;Where this goes next</h3>
+
+<ul>
+  <li><b>Success detection and stage retry</b> — close the loop above the triggers; the
+  architecture already has the camera and the state machine seams for it.</li>
+  <li><b>Learned pouring</b> — the waypoint pour is placement-blind; a policy conditioned on the
+  live coverage mask could center and shape the pour, subsuming the YOLO trigger into a
+  continuous control signal.</li>
+  <li><b>Continuous cooking</b> — pancake $n{+}1$ pours while $n$ cooks; requires the success
+  detector, a scheduling layer over the stage machine, and plating-side collision awareness.</li>
+  <li><b>A single multi-task policy</b> — flip and plate share the spatula-retrieval prefix;
+  a task-conditioned ACT (the runner already plumbs a task string through) or a small VLA could
+  merge the checkpoints and halve the model-management surface.</li>
+  <li><b>Trigger self-calibration</b> — replace the hand-fit drop-trigger constants with
+  quantities estimated from the confidence trace itself (e.g., trigger on a sustained negative
+  slope rather than absolute levels), removing the tightest coupling to this particular
+  checkpoint's calibration.</li>
+</ul>
